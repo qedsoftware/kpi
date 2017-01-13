@@ -108,8 +108,9 @@ class SidebarFormsList extends Reflux.Component {
                     </bem.FormSidebar__label>,
                     <bem.FormSidebar__grouping m={[category, categoryVisible ? 'visible' : 'collapsed']}>
                       {
-                        s.defaultQueryCategorizedResultsLists[category].map(
-                          this.renderMiniAssetRow)
+                        s.defaultQueryCategorizedResultsLists[category]
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map(this.renderMiniAssetRow)
                       }
                     </bem.FormSidebar__grouping>
                   ];
