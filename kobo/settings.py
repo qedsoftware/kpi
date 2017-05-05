@@ -152,7 +152,7 @@ LANGUAGES = [(lang_code, get_language_info(lang_code)['name_local'])
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.environ.get('TIME_ZONE', 'UTC')
 
 LOCALE_PATHS= (os.path.join(BASE_DIR, 'locale'),)
 
