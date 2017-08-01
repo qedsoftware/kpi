@@ -16,7 +16,7 @@ from rest_framework import exceptions, status
 from rest_framework.authtoken.models import Token
 
 from base_backend import BaseDeploymentBackend
-from .kc_reader.utils import instance_count
+from .kc_access.utils import instance_count
 
 
 class KobocatDeploymentException(exceptions.APIException):
@@ -35,6 +35,7 @@ class KobocatDeploymentException(exceptions.APIException):
                 'contain no spaces.',
         )
         return self.detail in invalid_form_id_responses
+
 
 class KobocatDeploymentBackend(BaseDeploymentBackend):
     '''
@@ -312,11 +313,17 @@ class KobocatDeploymentBackend(BaseDeploymentBackend):
         })
 
     def delete(self):
-        url = self.external_to_internal_url(
-            self.backend_response['url'])
-        self._kobocat_request('DELETE', url, None)
-        self.asset._deployment_data = {}
-        self.asset.save()
+        ''' WARNING! Deletes all submitted data! '''
+        url = self.external_to_internal_url(self.backend_response['url'])
+        try:
+            self._kobocat_request('DELETE', url, None)
+        except KobocatDeploymentException as e:
+            if hasattr(e, 'response') and e.response.status_code == 404:
+                # The KC project is already gone!
+                pass
+            else:
+                raise
+        super(KobocatDeploymentBackend, self).delete()
 
     def get_enketo_survey_links(self):
         data = {
@@ -328,7 +335,7 @@ class KobocatDeploymentBackend(BaseDeploymentBackend):
         }
         try:
             response = requests.post(
-                u'{}/{}'.format(
+                u'{}{}'.format(
                     settings.ENKETO_SERVER, settings.ENKETO_SURVEY_ENDPOINT),
                 # bare tuple implies basic auth
                 auth=(settings.ENKETO_API_TOKEN, ''),
@@ -388,7 +395,7 @@ class KobocatDeploymentBackend(BaseDeploymentBackend):
     def _submission_count(self):
         _deployment_data = self.asset._deployment_data
         id_string = _deployment_data['backend_response']['id_string']
-        # avoid migrations from being created for kc_reader mocked models
+        # avoid migrations from being created for kc_access mocked models
         # there should be a better way to do this, right?
         return instance_count(xform_id_string=id_string,
                               user_id=self.asset.owner.pk,

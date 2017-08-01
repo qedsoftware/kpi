@@ -1,5 +1,6 @@
 import datetime
 import json
+import pytz
 from collections import OrderedDict
 
 from django.contrib.auth.models import User, Permission
@@ -16,8 +17,10 @@ from taggit.models import Tag
 
 from kobo.static_lists import SECTORS, COUNTRIES, LANGUAGES
 from hub.models import SitewideMessage, ExtraUserDetail
+from .fields import PaginatedApiField
 from .models import Asset
 from .models import AssetSnapshot
+from .models import AssetVersion
 from .models import Collection
 from .models import CollectionChildrenQuerySet
 from .models import UserCollectionSubscription
@@ -30,8 +33,9 @@ from .models import OneTimeAuthenticationKey
 from .forms import USERNAME_REGEX, USERNAME_MAX_LENGTH
 from .forms import USERNAME_INVALID_MESSAGE
 from .utils.gravatar_url import gravatar_url
-from .deployment_backends.kc_reader.utils import get_kc_profile_data
-from .deployment_backends.kc_reader.utils import set_kc_require_auth
+
+from .deployment_backends.kc_access.utils import get_kc_profile_data
+from .deployment_backends.kc_access.utils import set_kc_require_auth
 
 
 class Paginated(LimitOffsetPagination):
@@ -48,7 +52,7 @@ class WritableJSONField(serializers.Field):
     """ Serializer for JSONField -- required to make field writable"""
 
     def __init__(self, **kwargs):
-        self.allow_blank= kwargs.pop('allow_blank', False)
+        self.allow_blank = kwargs.pop('allow_blank', False)
         super(WritableJSONField, self).__init__(**kwargs)
 
     def to_internal_value(self, data):
@@ -251,7 +255,16 @@ class ObjectPermissionSerializer(serializers.ModelSerializer):
         content_object = validated_data['content_object']
         user = validated_data['user']
         perm = validated_data['permission'].codename
-        return content_object.assign_perm(user, perm)
+        with transaction.atomic():
+            # TEMPORARY Issue #1161: something other than KC is setting a
+            # permission; clear the `from_kc_only` flag
+            ObjectPermission.objects.filter(
+                user=user,
+                permission__codename='from_kc_only',
+                object_id=content_object.id,
+                content_type=ContentType.objects.get_for_model(content_object)
+            ).delete()
+            return content_object.assign_perm(user, perm)
 
 
 class AncestorCollectionsSerializer(serializers.HyperlinkedModelSerializer):
@@ -362,6 +375,41 @@ class AssetSnapshotSerializer(serializers.HyperlinkedModelSerializer):
                   )
 
 
+class AssetVersionListSerializer(serializers.Serializer):
+    # If you change these fields, please update the `only()` and
+    # `select_related()` calls  in `AssetVersionViewSet.get_queryset()`
+    uid = serializers.ReadOnlyField()
+    url = serializers.SerializerMethodField()
+    date_deployed = serializers.SerializerMethodField(read_only=True)
+    date_modified = serializers.CharField(read_only=True)
+
+    def get_date_deployed(self, obj):
+        return obj.deployed and obj.date_modified
+
+    def get_url(self, obj):
+        return reverse('asset-version-detail', args=(obj.asset.uid, obj.uid),
+                       request=self.context.get('request', None))
+
+
+class AssetVersionSerializer(AssetVersionListSerializer):
+    content = serializers.SerializerMethodField(read_only=True)
+
+    def get_content(self, obj):
+        return obj.version_content
+
+    def get_version_id(self, obj):
+        return obj.uid
+
+    class Meta:
+        model = AssetVersion
+        fields = (
+                    'version_id',
+                    'date_deployed',
+                    'date_modified',
+                    'content',
+                  )
+
+
 class AssetSerializer(serializers.HyperlinkedModelSerializer):
     owner = RelativePrefixHyperlinkedRelatedField(
         view_name='user-detail', lookup_field='username', read_only=True)
@@ -393,7 +441,12 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
     version_id = serializers.CharField(read_only=True)
     has_deployment = serializers.ReadOnlyField()
     deployed_version_id = serializers.SerializerMethodField()
-    deployed_versions = serializers.SerializerMethodField()
+    deployed_versions = PaginatedApiField(
+        serializer_class=AssetVersionListSerializer,
+        # Higher-than-normal limit since the client doesn't yet know how to
+        # request more than the first page
+        default_limit=100
+    )
     deployment__identifier = serializers.SerializerMethodField()
     deployment__active = serializers.SerializerMethodField()
     deployment__links = serializers.SerializerMethodField()
@@ -444,6 +497,20 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
                 'read_only': True,
             },
         }
+
+    def update(self, asset, validated_data):
+        asset_content = asset.content
+        _req_data = self.context['request'].data
+        _has_translations = 'translations' in _req_data
+        _has_content = 'content' in _req_data
+        if _has_translations and not _has_content:
+            translations_list = json.loads(_req_data['translations'])
+            try:
+                asset.update_translation_list(translations_list)
+            except ValueError as err:
+                raise serializers.ValidationError(err.message)
+            validated_data['content'] = asset_content
+        return super(AssetSerializer, self).update(asset, validated_data)
 
     def get_fields(self, *args, **kwargs):
         fields = super(AssetSerializer, self).get_fields(*args, **kwargs)
@@ -513,8 +580,10 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
                        .get('request', None))
 
     def get_deployed_version_id(self, obj):
+        if not obj.has_deployment:
+            return
         if obj.asset_versions.filter(deployed=True).exists():
-            if obj.has_deployment and isinstance(obj.deployment.version_id, int):
+            if isinstance(obj.deployment.version_id, int):
                 # this can be removed once the 'replace_deployment_ids'
                 # migration has been run
                 v_id = obj.deployment.version_id
@@ -524,14 +593,6 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
                     return obj.asset_versions.filter(deployed=True).first().uid
             else:
                 return obj.deployment.version_id
-
-    def get_deployed_versions(self, asset):
-        deployed_versioned_assets = asset.asset_versions.filter(deployed=True)
-        return AssetVersionListSerializer(
-            deployed_versioned_assets,
-            many=True,
-            context=self.context
-        ).data
 
     def get_deployment__identifier(self, obj):
         if obj.has_deployment:
@@ -571,14 +632,18 @@ class DeploymentSerializer(serializers.Serializer):
     active = serializers.BooleanField(required=False)
     version_id = serializers.CharField(required=False)
 
-    def create(self, validated_data):
-        asset = self.context['asset']
+    @staticmethod
+    def _raise_unless_current_version(asset, validated_data):
         # Stop if the requester attempts to deploy any version of the asset
         # except the current one
         if 'version_id' in validated_data and \
                 validated_data['version_id'] != str(asset.version_id):
             raise NotImplementedError(
                 'Only the current version_id can be deployed')
+
+    def create(self, validated_data):
+        asset = self.context['asset']
+        self._raise_unless_current_version(asset, validated_data)
         # if no backend is provided, use the installation's default backend
         backend_id = validated_data.get('backend',
                                         settings.DEFAULT_DEPLOYMENT_BACKEND)
@@ -592,6 +657,9 @@ class DeploymentSerializer(serializers.Serializer):
         return asset.deployment
 
     def update(self, instance, validated_data):
+        ''' If a `version_id` is provided and differs from the current
+        deployment's `version_id`, the asset will be redeployed. Otherwise,
+        only the `active` field will be updated '''
         asset = self.context['asset']
         deployment = asset.deployment
 
@@ -601,11 +669,20 @@ class DeploymentSerializer(serializers.Serializer):
                 {'backend': 'This field cannot be modified after the initial '
                             'deployment.'})
 
-        # A regular PATCH request can update only the `active` field
-        if 'active' in validated_data:
-            asset.deploy(validated_data['active'])
-            asset.save(create_version=False,
-                       adjust_content=False)
+        if ('version_id' in validated_data and
+                validated_data['version_id'] != deployment.version_id):
+            # Request specified a `version_id` that differs from the current
+            # deployment's; redeploy
+            self._raise_unless_current_version(asset, validated_data)
+            asset.deploy(
+                backend=deployment.backend,
+                active=validated_data.get('active', deployment.active)
+            )
+        elif 'active' in validated_data:
+            # Set the `active` flag without touching the rest of the deployment
+            deployment.set_active(validated_data['active'])
+
+        asset.save(create_version=False, adjust_content=False)
         return deployment
 
 
@@ -669,42 +746,15 @@ class AssetListSerializer(AssetSerializer):
                   )
 
 
-class AssetVersionListSerializer(AssetSerializer):
-    date_deployed = serializers.SerializerMethodField()
-    version_id = serializers.SerializerMethodField()
-
-    def get_date_deployed(self, obj):
-        return obj.date_modified
-
-    def get_version_id(self, obj):
-        return obj.uid
-
-    class Meta(AssetSerializer.Meta):
-        fields = ('version_id', 'date_deployed')
-
-
 class AssetUrlListSerializer(AssetSerializer):
     class Meta(AssetSerializer.Meta):
         fields = ('url',)
 
 
 class UserSerializer(serializers.HyperlinkedModelSerializer):
-    assets = serializers.SerializerMethodField()
-    def get_assets(self, obj):
-        paginator = LimitOffsetPagination()
-        paginator.default_limit = 10
-        page = paginator.paginate_queryset(
-            queryset=obj.assets.all(),
-            request=self.context.get('request', None)
-        )
-        serializer = AssetUrlListSerializer(
-            page, many=True, read_only=True, context=self.context)
-        return OrderedDict([
-            ('count', paginator.count),
-            ('next', paginator.get_next_link()),
-            ('previous', paginator.get_previous_link()),
-            ('results', serializer.data)
-        ])
+    assets = PaginatedApiField(
+        serializer_class=AssetUrlListSerializer
+    )
 
     class Meta:
         model = User
@@ -726,12 +776,15 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
 class CurrentUserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField()
     server_time = serializers.SerializerMethodField()
+    date_joined = serializers.SerializerMethodField()
     projects_url = serializers.SerializerMethodField()
+    support = serializers.SerializerMethodField()
     gravatar = serializers.SerializerMethodField()
     languages = serializers.SerializerMethodField()
     extra_details = WritableJSONField(source='extra_details.data')
     current_password = serializers.CharField(write_only=True, required=False)
     new_password = serializers.CharField(write_only=True, required=False)
+    git_rev = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -741,7 +794,9 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             'last_name',
             'email',
             'server_time',
+            'date_joined',
             'projects_url',
+            'support',
             'is_superuser',
             'gravatar',
             'is_staff',
@@ -750,19 +805,39 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             'extra_details',
             'current_password',
             'new_password',
+            'git_rev',
         )
 
     def get_server_time(self, obj):
-        return datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+        # Currently unused on the front end
+        return datetime.datetime.now(tz=pytz.UTC).strftime(
+            '%Y-%m-%dT%H:%M:%SZ')
+
+    def get_date_joined(self, obj):
+        return obj.date_joined.astimezone(pytz.UTC).strftime(
+            '%Y-%m-%dT%H:%M:%SZ')
 
     def get_projects_url(self, obj):
         return '/'.join((settings.KOBOCAT_URL, obj.username))
+
+    def get_support(self, obj):
+        return {
+            'email': settings.KOBO_SUPPORT_EMAIL,
+            'url': settings.KOBO_SUPPORT_URL,
+        }
 
     def get_gravatar(self, obj):
         return gravatar_url(obj.email)
 
     def get_languages(self, obj):
         return settings.LANGUAGES
+
+    def get_git_rev(self, obj):
+        request = self.context.get('request', False)
+        if settings.EXPOSE_GIT_REV or (request and request.user.is_superuser):
+            return settings.GIT_REV
+        else:
+            return False
 
     def to_representation(self, obj):
         if obj.is_anonymous():
@@ -860,20 +935,6 @@ class CreateUserSerializer(serializers.ModelSerializer):
         return user
 
 
-class UserListSerializer(UserSerializer):
-    assets_count = serializers.SerializerMethodField('_assets_count')
-    collections_count = serializers.SerializerMethodField('_collections_count')
-
-    def _collections_count(self, obj):
-        return obj.owned_collections.count()
-
-    def _assets_count(self, obj):
-        return obj.assets.count()
-
-    class Meta(UserSerializer.Meta):
-        fields = ('url', 'username', 'assets_count', 'collections_count',)
-
-
 class CollectionChildrenSerializer(serializers.Serializer):
     def to_representation(self, value):
         if isinstance(value, Collection):
@@ -903,7 +964,22 @@ class CollectionSerializer(serializers.HyperlinkedModelSerializer):
     # ancestors are ordered from farthest to nearest
     ancestors = AncestorCollectionsSerializer(
         many=True, read_only=True, source='get_ancestors_or_none')
-    children = serializers.SerializerMethodField()
+    children = PaginatedApiField(
+        serializer_class=CollectionChildrenSerializer,
+        # "The value `source='*'` has a special meaning, and is used to indicate
+        # that the entire object should be passed through to the field"
+        # (http://www.django-rest-framework.org/api-guide/fields/#source).
+        source='*',
+        source_processor=lambda source: CollectionChildrenQuerySet(
+            source).select_related(
+                'owner', 'parent'
+            ).prefetch_related(
+                'permissions',
+                'permissions__permission',
+                'permissions__user',
+                'permissions__content_object',
+            ).all()
+    )
     permissions = ObjectPermissionSerializer(many=True, read_only=True)
     downloads = serializers.SerializerMethodField()
     tag_string = serializers.CharField(required=False)
@@ -939,30 +1015,6 @@ class CollectionSerializer(serializers.HyperlinkedModelSerializer):
 
     def _get_tag_names(self, obj):
         return obj.tags.names()
-
-    def get_children(self, obj):
-        paginator = LimitOffsetPagination()
-        paginator.default_limit = 10
-        queryset = CollectionChildrenQuerySet(obj).select_related(
-            'owner', 'parent'
-        ).prefetch_related(
-            'permissions',
-            'permissions__permission',
-            'permissions__user',
-            'permissions__content_object',
-        ).all()
-        page = paginator.paginate_queryset(
-            queryset=queryset,
-            request=self.context.get('request', None)
-        )
-        serializer = CollectionChildrenSerializer(
-            page, read_only=True, many=True, context=self.context)
-        return OrderedDict([
-            ('count', paginator.count),
-            ('next', paginator.get_next_link()),
-            ('previous', paginator.get_previous_link()),
-            ('results', serializer.data)
-        ])
 
     def get_downloads(self, obj):
         request = self.context.get('request', None)

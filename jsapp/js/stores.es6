@@ -9,6 +9,7 @@ import {
   t,
   notify,
   assign,
+  setSupportDetails,
 } from './utils';
 
 function changes(orig_obj, new_obj) {
@@ -145,16 +146,12 @@ var pageStateStore = Reflux.createStore({
       navIsOpen = false;
     }
     this.state = {
-      headerBreadcrumb: [],
-      // drawerIsVisible: false,
-      // headerSearch: true,
-      assetNavPresent: false,
       assetNavIsOpen: navIsOpen,
       assetNavIntentOpen: navIsOpen,
       assetNavExpanded: false,
       showFixedDrawer: false,
       headerHidden: false,
-      drawerHidden: false,
+      drawerHidden: false
     };
   },
   setState (chz) {
@@ -164,30 +161,6 @@ var pageStateStore = Reflux.createStore({
       this.trigger(changed);
     }
   },
-  // setTopPanel (height, isFixed) {
-  //   var changed = changes(this.state, {
-  //     bgTopPanelHeight: height,
-  //     bgTopPanelFixed: isFixed
-  //   });
-
-  //   if (changed) {
-  //     assign(this.state, changed);
-  //     this.trigger(changed);
-  //   }
-  // },
-  // toggleSidebarIntentOpen () {
-  //   var newIntent = !this.state.sidebarIntentOpen,
-  //       isOpen = this.state.sidebarIsOpen,
-  //       changes = {
-  //         sidebarIntentOpen: newIntent
-  //       };
-  //   // xor
-  //   if ( (isOpen || newIntent) && !(isOpen && newIntent) ) {
-  //     changes.sidebarIsOpen = !isOpen;
-  //   }
-  //   assign(this.state, changes);
-  //   this.trigger(changes);
-  // },
   toggleFixedDrawer () {
     var _changes = {};
     var newval = !this.state.showFixedDrawer;
@@ -210,10 +183,9 @@ var pageStateStore = Reflux.createStore({
     assign(this.state, _changes);
     this.trigger(_changes);
   },
-  showModal ({message, icon}) {
+  showModal (params) {
     this.setState({
-      modalMessage: message,
-      modalIcon: icon,
+      modal: params
     });
   },
   hideModal () {
@@ -221,42 +193,19 @@ var pageStateStore = Reflux.createStore({
       this._onHideModal();
     }
     this.setState({
-      modalMessage: false,
-      modalIcon: false,
+      modal: false
     });
   },
-  setAssetNavPresent (tf) {
-    var val = !!tf;
-    if (val !== this.state.assetNavPresent) {
-      this.state.assetNavPresent = val;
-      this.trigger({
-        assetNavPresent: val
-      });
-    }
-  },
-  setDrawerHidden (tf) {
+  hideDrawerAndHeader (tf) {
     var val = !!tf;
     if (val !== this.state.drawerHidden) {
-      this.state.drawerHidden = val;
-      this.trigger({
-        drawerHidden: val
-      });
-    }
-  },
-  setHeaderHidden (tf) {
-    var val = !!tf;
-    if (val !== this.state.headerHidden) {
-      this.state.headerHidden = val;
-      this.trigger({
+      var _changes = {
+        drawerHidden: val,
         headerHidden: val
-      });
-    }
-  },
-  setHeaderBreadcrumb (newBreadcrumb) {
-      var _changes = {};
-      _changes.headerBreadcrumb = newBreadcrumb;
+      };
       assign(this.state, _changes);
-      this.trigger(_changes);
+      this.trigger(this.state);
+    }
   }
 });
 
@@ -343,10 +292,6 @@ var sessionStore = Reflux.createStore({
   triggerAnonymous (/*data*/) {},
   triggerLoggedIn (acct) {
     this.currentAccount = acct;
-    if (acct.system_time) {
-      acct.sysDate = new Date(Date.parse(acct.system_time));
-      acct.curDate = new Date();
-    }
     if (acct.upcoming_downtime) {
       var downtimeString = acct.upcoming_downtime[0];
       acct.downtimeDate = new Date(Date.parse(acct.upcoming_downtime[0]));
@@ -367,6 +312,9 @@ var sessionStore = Reflux.createStore({
       if ('downtimeNoticeSeen' in window.localStorage) {
         localStorage.removeItem('downtimeNoticeSeen');
       }
+    }
+    if (acct.support) {
+      setSupportDetails(acct.support)
     }
     var nestedArrToChoiceObjs = function (_s) {
       return {
@@ -614,6 +562,37 @@ stores.collections = Reflux.createStore({
     this.trigger(this.state);
   }
 });
+
+if (window.Intercom) {
+  var IntercomStore = Reflux.createStore({
+    init () {
+      this.listenTo(actions.navigation.routeUpdate, this.routeUpdate);
+      this.listenTo(actions.auth.verifyLogin.loggedin, this.loggedIn);
+      this.listenTo(actions.auth.logout.completed, this.loggedOut);
+    },
+    routeUpdate (routes) {
+      window.Intercom("update");
+    },
+    loggedIn (acct) {
+      let name = acct.extra_details.name;
+      let legacyName = [
+        acct.first_name, acct.last_name].filter(val => val).join(' ');
+      let userData = {
+        'user_id': [acct.username, window.location.host].join('@'),
+        'username': acct.username,
+        'email': acct.email,
+        'name': name ? name : legacyName ? legacyName : acct.username,
+        'created_at': Math.floor(
+          (new Date(acct.date_joined)).getTime() / 1000),
+        'app_id': window.IntercomAppId
+      }
+      window.Intercom("boot", userData);
+    },
+    loggedOut () {
+      window.Intercom('shutdown');
+    }
+  });
+}
 
 assign(stores, {
   history: historyStore,

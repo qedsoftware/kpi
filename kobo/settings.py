@@ -11,13 +11,16 @@ https://docs.djangoproject.com/en/1.7/ref/settings/
 from datetime import timedelta
 import multiprocessing
 import os
+import subprocess
 
 from django.conf import global_settings
-from django.conf.global_settings import LANGUAGES as _available_langs
+from django.conf.global_settings import LOGIN_URL
 from django.utils.translation import get_language_info
 import dj_database_url
 
 from pymongo import MongoClient
+
+from static_lists import NATIVE_LANGUAGE_NAMES
 
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -83,7 +86,8 @@ INSTALLED_APPS = (
     'rest_framework.authtoken',
     'oauth2_provider',
     'markitup',
-    'django_digest'
+    'django_digest',
+    'guardian', # For access to KC permissions ONLY
 )
 
 MIDDLEWARE_CLASSES = (
@@ -145,10 +149,23 @@ for db in DATABASES.values():
 # Internationalization
 # https://docs.djangoproject.com/en/1.8/topics/i18n/
 
+def get_native_language_name(lang_code):
+    try:
+        return get_language_info(lang_code)['name_local']
+    except KeyError:
+        pass
+    try:
+        return NATIVE_LANGUAGE_NAMES[lang_code]
+    except KeyError:
+        raise KeyError(u'Please add an entry for {} to '
+                       u'kobo.static_lists.NATIVE_LANGUAGE_NAMES and try '
+                       u'again.'.format(lang_code))
 
-_available_langs = dict(_available_langs)
-LANGUAGES = [(lang_code, get_language_info(lang_code)['name_local'])
-             for lang_code in os.environ.get('DJANGO_LANGUAGE_CODES', 'en').split(' ')]
+LANGUAGES = [
+    (lang_code, get_native_language_name(lang_code))
+        for lang_code in os.environ.get(
+            'DJANGO_LANGUAGE_CODES', 'en').split(' ')
+]
 
 LANGUAGE_CODE = 'en-us'
 
@@ -182,7 +199,6 @@ else:
 # KPI_PREFIX should be set in the environment when running in a subdirectory
 if KPI_PREFIX and KPI_PREFIX != '/':
     STATIC_URL = KPI_PREFIX + '/' + STATIC_URL.lstrip('/')
-    from django.conf.global_settings import LOGIN_URL, LOGIN_REDIRECT_URL
     LOGIN_URL = KPI_PREFIX + '/' + LOGIN_URL.lstrip('/')
     LOGIN_REDIRECT_URL = KPI_PREFIX + '/' + LOGIN_REDIRECT_URL.lstrip('/')
 
@@ -224,6 +240,7 @@ TEMPLATE_CONTEXT_PROCESSORS = global_settings.TEMPLATE_CONTEXT_PROCESSORS + (
 
 TRACKJS_TOKEN = os.environ.get('TRACKJS_TOKEN')
 GOOGLE_ANALYTICS_TOKEN = os.environ.get('GOOGLE_ANALYTICS_TOKEN')
+INTERCOM_APP_ID = os.environ.get('INTERCOM_APP_ID')
 
 # replace this with the pointer to the kobocat server, if it exists
 KOBOCAT_URL = os.environ.get('KOBOCAT_URL', 'http://kobocat/')
@@ -281,6 +298,7 @@ ENKETO_API_TOKEN = os.environ.get('ENKETO_API_TOKEN', 'enketorules')
 ENKETO_SURVEY_ENDPOINT = 'api/v2/survey/all'
 
 ''' Celery configuration '''
+
 if os.environ.get('SKIP_CELERY', 'False') == 'True':
     # helpful for certain debugging
     CELERY_ALWAYS_EAGER = True
@@ -297,11 +315,15 @@ if multiprocessing.cpu_count() > CELERYD_MAX_CONCURRENCY:
 CELERYD_MAX_TASKS_PER_CHILD = int(os.environ.get(
     'CELERYD_MAX_TASKS_PER_CHILD', 7))
 
-# Uncomment to enable failsafe search indexing
+# Default to a 30-minute soft time limit and a 35-minute hard time limit
+CELERYD_TASK_TIME_LIMIT = int(os.environ.get('CELERYD_TASK_TIME_LIMIT', 2100))
+CELERYD_TASK_SOFT_TIME_LIMIT = int(os.environ.get(
+    'CELERYD_TASK_SOFT_TIME_LIMIT', 1800))
 
 CELERYBEAT_SCHEDULE = {
-    # Update the Haystack index twice per day to catch any stragglers that
-    # might have gotten past haystack.signals.RealtimeSignalProcessor
+    # Failsafe search indexing: update the Haystack index twice per day to
+    # catch any stragglers that might have gotten past
+    # haystack.signals.RealtimeSignalProcessor
     #'update-search-index': {
     #    'task': 'kpi.tasks.update_search_index',
     #    'schedule': timedelta(hours=12)
@@ -309,15 +331,19 @@ CELERYBEAT_SCHEDULE = {
 }
 
 if 'KOBOCAT_URL' in os.environ:
-    # Create/update KPI assets to match KC forms
-    SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES = int(os.environ.get('SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES',
-                                                            '30'))
-    CELERYBEAT_SCHEDULE['sync-kobocat-xforms'] = {
-        'task': 'kpi.tasks.sync_kobocat_xforms',
-        'schedule': timedelta(minutes=SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES),
-        'options': {'queue': 'sync_kobocat_xforms_queue',
-                    'expires': SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES /2. * 60},
-    }
+    SYNC_KOBOCAT_XFORMS = (os.environ.get('SYNC_KOBOCAT_XFORMS', 'True') == 'True')
+    SYNC_KOBOCAT_PERMISSIONS = (
+        os.environ.get('SYNC_KOBOCAT_PERMISSIONS', 'True') == 'True')
+    if SYNC_KOBOCAT_XFORMS:
+        # Create/update KPI assets to match KC forms
+        SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES = int(
+            os.environ.get('SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES', '30'))
+        CELERYBEAT_SCHEDULE['sync-kobocat-xforms'] = {
+            'task': 'kpi.tasks.sync_kobocat_xforms',
+            'schedule': timedelta(minutes=SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES),
+            'options': {'queue': 'sync_kobocat_xforms_queue',
+                        'expires': SYNC_KOBOCAT_XFORMS_PERIOD_MINUTES /2. * 60},
+        }
 
 '''
 Distinct projects using Celery need their own queues. Example commands for
@@ -368,6 +394,9 @@ if os.environ.get('EMAIL_USE_TLS'):
 if os.environ.get('DEFAULT_FROM_EMAIL'):
     DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL')
     SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+KOBO_SUPPORT_URL = os.environ.get('KOBO_SUPPORT_URL', 'http://help.kobotoolbox.org/')
+KOBO_SUPPORT_EMAIL = os.environ.get('KOBO_SUPPORT_EMAIL') or os.environ.get('DEFAULT_FROM_EMAIL', 'support@kobotoolbox.org')
 
 if os.environ.get('AWS_ACCESS_KEY_ID'):
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
@@ -443,6 +472,28 @@ if 'RAVEN_DSN' in os.environ:
             },
         },
     }
+
+
+''' Try to identify the running codebase. Based upon
+https://github.com/tblobaum/git-rev/blob/master/index.js '''
+GIT_REV = {}
+for git_rev_key, git_command in (
+        ('short', ('git', 'rev-parse', '--short', 'HEAD')),
+        ('long', ('git', 'rev-parse', 'HEAD')),
+        ('branch', ('git', 'rev-parse', '--abbrev-ref', 'HEAD')),
+        ('tag', ('git', 'describe', '--exact-match', '--tags')),
+):
+    try:
+        GIT_REV[git_rev_key] = subprocess.check_output(
+            git_command, stderr=subprocess.STDOUT).strip()
+    except (OSError, subprocess.CalledProcessError) as e:
+        GIT_REV[git_rev_key] = False
+if GIT_REV['branch'] == 'HEAD':
+    GIT_REV['branch'] = False
+# Only superusers will be able to see this information unless
+# EXPOSE_GIT_REV=TRUE is set in the environment
+EXPOSE_GIT_REV = os.environ.get('EXPOSE_GIT_REV', '').upper() == 'TRUE'
+
 
 ''' Since this project handles user creation but shares its database with
 KoBoCAT, we must handle the model-level permission assignment that would've

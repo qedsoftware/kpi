@@ -7,21 +7,23 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from kpi.models import Asset
+from kpi.models import AssetVersion
 from kpi.models import Collection
 from .kpi_test_case import KpiTestCase
 from formpack.utils.expand_content import SCHEMA_VERSION
 
 EMPTY_SURVEY = {'survey': [], 'schema': SCHEMA_VERSION, 'settings': {}}
 
+
 class AssetsListApiTests(APITestCase):
     fixtures = ['test_data']
 
     def setUp(self):
-        self.client.login(username='admin', password='pass')
+        self.client.login(username='someuser', password='someuser')
 
     def test_login_as_other_users(self):
         self.client.logout()
-        self.client.login(username='someuser', password='someuser')
+        self.client.login(username='admin', password='pass')
         self.client.logout()
         self.client.login(username='anotheruser', password='anotheruser')
         self.client.logout()
@@ -40,13 +42,57 @@ class AssetsListApiTests(APITestCase):
                          msg=response.data)
         sa = Asset.objects.order_by('date_created').last()
         self.assertEqual(sa.content, EMPTY_SURVEY)
+        return response
+
+    def test_delete_asset(self):
+        self.client.logout()
+        self.client.login(username='anotheruser', password='anotheruser')
+        creation_response = self.test_create_asset()
+        asset_url = creation_response.data['url']
+        response = self.client.delete(asset_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK,
+                         msg=response.data)
+
+
+class AssetVersionApiTests(APITestCase):
+    fixtures = ['test_data']
+
+    def setUp(self):
+        self.client.login(username='someuser', password='someuser')
+        self.asset = Asset.objects.first()
+        self.asset.save()
+        self.version = self.asset.asset_versions.first()
+        self.version_list_url = reverse('asset-version-list',
+                                        args=(self.asset.uid,))
+
+    def test_asset_version(self):
+        self.assertEqual(Asset.objects.count(), 1)
+        self.assertEqual(AssetVersion.objects.count(), 1)
+        resp = self.client.get(self.version_list_url, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 1)
+        _version_detail_url = resp.data['results'][0].get('url')
+        resp2 = self.client.get(_version_detail_url, format='json')
+        self.assertTrue('survey' in resp2.data['content'])
+        self.assertEqual(len(resp2.data['content']['survey']), 2)
+
+    def test_restricted_access_to_version(self):
+        self.client.logout()
+        self.client.login(username='anotheruser', password='anotheruser')
+        resp = self.client.get(self.version_list_url, format='json')
+        self.assertEqual(resp.data['count'], 0)
+        _version_detail_url = reverse('asset-version-detail',
+                                      args=(self.asset.uid, self.version.uid))
+        resp2 = self.client.get(_version_detail_url)
+        self.assertEqual(resp2.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(resp2.data['detail'], 'Not found.')
 
 
 class AssetsDetailApiTests(APITestCase):
     fixtures = ['test_data']
 
     def setUp(self):
-        self.client.login(username='admin', password='pass')
+        self.client.login(username='someuser', password='someuser')
         url = reverse('asset-list')
         data = {'content': '{}', 'asset_type': 'survey'}
         self.r = self.client.post(url, data, format='json')
@@ -124,6 +170,29 @@ class AssetsDetailApiTests(APITestCase):
         self.assertEqual(new_asset.content['survey'][0]['label'], ['v2'])
         self.assertEqual(new_asset.content['translations'], [None])
 
+    def test_deployed_version_pagination(self):
+        PAGE_LENGTH = 100
+        version = self.asset.latest_version
+        preexisting_count = self.asset.deployed_versions.count()
+        version.deployed = True
+        for i in range(PAGE_LENGTH + 11):
+            version.uid = ''
+            version.pk = None
+            version.save()
+        self.assertEqual(
+            preexisting_count + PAGE_LENGTH + 11,
+            self.asset.deployed_versions.count()
+        )
+        response = self.client.get(self.asset_url, format='json')
+        self.assertEqual(
+            response.data['deployed_versions']['count'],
+            self.asset.deployed_versions.count()
+        )
+        self.assertEqual(
+            len(response.data['deployed_versions']['results']),
+            PAGE_LENGTH
+        )
+
 
 class AssetsXmlExportApiTests(KpiTestCase):
     fixtures = ['test_data']
@@ -197,8 +266,8 @@ class ObjectRelationshipsTests(APITestCase):
     fixtures = ['test_data']
 
     def setUp(self):
-        self.client.login(username='admin', password='pass')
-        self.user = User.objects.get(id=1)
+        self.client.login(username='someuser', password='someuser')
+        self.user = User.objects.get(username='someuser')
         self.surv = Asset.objects.create(content={'survey': [{"type": "text", "name": "q1"}]},
                                          owner=self.user,
                                          asset_type='survey')

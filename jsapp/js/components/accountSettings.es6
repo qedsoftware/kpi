@@ -1,8 +1,11 @@
-import React from 'react/addons';
+import React from 'react';
+import reactMixin from 'react-mixin';
+import autoBind from 'react-autobind';
 import Reflux from 'reflux';
 import _ from 'underscore';
 import {dataInterface} from '../dataInterface';
 import DocumentTitle from 'react-document-title';
+import TextareaAutosize from 'react-autosize-textarea';
 
 import actions from '../actions';
 import bem from '../bem';
@@ -14,14 +17,26 @@ import {
   assign,
   t,
   log,
+  stringToColor,
 } from '../utils';
 
-
-export var AccountSettings = React.createClass({
-  mixins: [
-    Reflux.connect(stores.session),
-    Reflux.ListenerMixin,
-  ],
+export class AccountSettings extends React.Component {
+  constructor(props){
+    super(props);
+    let state = {
+      requireAuth: false,
+    }
+    this.state = state;
+    autoBind(this);
+    if (stores.session && stores.session.currentAccount) {
+      this.state = this.getStateFromCurrentAccount(stores.session.currentAccount);
+    }
+  }
+  componentDidMount() {
+    this.listenTo(stores.session, ({currentAccount}) => {
+      this.setState(this.getStateFromCurrentAccount(currentAccount));
+    });
+  }
   getStateFromCurrentAccount(currentAccount) {
     if (currentAccount.extra_details == undefined)
       currentAccount.extra_details = {};
@@ -62,7 +77,7 @@ export var AccountSettings = React.createClass({
         },
       ]
     };
-  },
+  }
   updateProfile () {
     actions.misc.updateProfile({
       email: this.state.email,
@@ -85,16 +100,7 @@ export var AccountSettings = React.createClass({
         metadata: this.state.metadata,
       })
     });
-  },
-  getInitialState () {
-    this.listenTo(stores.session, ({currentAccount}) => {
-      this.setState(this.getStateFromCurrentAccount(currentAccount));
-    });
-    if(stores.session && stores.session.currentAccount) {
-      return this.getStateFromCurrentAccount(stores.session.currentAccount);
-    }
-    return {};
-  },
+  }
   handleChange (e, attr) {
     if (e.target) {
       if (e.target.type == 'checkbox') {
@@ -107,24 +113,25 @@ export var AccountSettings = React.createClass({
       var val = e;
     }
     this.setState({[attr]: val});
-  },
-  nameChange (e) {this.handleChange(e, 'name');},
-  emailChange (e) {this.handleChange(e, 'email');},
-  organizationChange (e) {this.handleChange(e, 'organization');},
-  organizationWebsiteChange (e) {this.handleChange(e, 'organizationWebsite');},
-  primarySectorChange (e) {this.handleChange(e, 'primarySector');},
-  genderChange (e) {this.handleChange(e, 'gender');},
-  bioChange (e) {this.handleChange(e, 'bio');},
-  phoneNumberChange (e) {this.handleChange(e, 'phoneNumber');},
-  addressChange (e) {this.handleChange(e, 'address');},
-  cityChange (e) {this.handleChange(e, 'city');},
-  countryChange (e) {this.handleChange(e, 'country');},
-  defaultLanguageChange (e) {this.handleChange(e, 'defaultLanguage');},
-  requireAuthChange (e) {this.handleChange(e, 'requireAuth');},
-  twitterChange (e) {this.handleChange(e, 'twitter');},
-  linkedinChange (e) {this.handleChange(e, 'linkedin');},
-  instagramChange (e) {this.handleChange(e, 'instagram');},
-  metadataChange (e) {this.handleChange(e, 'metadata');},
+  }
+  nameChange (e) {this.handleChange(e, 'name');}
+  emailChange (e) {this.handleChange(e, 'email');}
+  organizationChange (e) {this.handleChange(e, 'organization');}
+  organizationWebsiteChange (e) {this.handleChange(e, 'organizationWebsite');}
+  primarySectorChange (e) {this.handleChange(e, 'primarySector');}
+  genderChange (e) {this.handleChange(e, 'gender');}
+  bioChange (e) {this.handleChange(e, 'bio');}
+  phoneNumberChange (e) {this.handleChange(e, 'phoneNumber');}
+  addressChange (e) {this.handleChange(e, 'address');}
+  cityChange (e) {this.handleChange(e, 'city');}
+  countryChange (e) {this.handleChange(e, 'country');}
+  defaultLanguageChange (e) {this.handleChange(e, 'defaultLanguage');}
+  requireAuthChange (e) {this.handleChange(e, 'requireAuth');}
+  twitterChange (e) {this.handleChange(e, 'twitter');}
+  linkedinChange (e) {this.handleChange(e, 'linkedin');}
+  instagramChange (e) {this.handleChange(e, 'instagram');}
+  metadataChange (e) {this.handleChange(e, 'metadata');}
+
   render () {
     if(!stores.session || !stores.session.currentAccount) {
       return (
@@ -138,38 +145,40 @@ export var AccountSettings = React.createClass({
       );
     }
 
-    var defaultGravatarImage = `${window.location.protocol}//www.gravatar.com/avatar/64e1b8d34f425d19e1ee2ea7236d3028?s=40`;
-    var gravatar = stores.session.currentAccount.gravatar || defaultGravatarImage;
     var accountName = stores.session.currentAccount.username;
+    var initialsStyle = {
+      background: `#${stringToColor(accountName)}`
+    };
 
     return (
       <DocumentTitle title={`${accountName} | KoboToolbox`}>
       <ui.Panel>
         <bem.AccountSettings>
-          <bem.AccountSettings__left>
-            <img src={gravatar} />
-          </bem.AccountSettings__left>
-          <bem.AccountSettings__right>
+          <bem.AccountSettings__item m={'column'}>
             <bem.AccountSettings__item m='actions'>
               <button onClick={this.updateProfile}
-                      className="mdl-button mdl-js-button mdl-button--bordered">
+                      className="mdl-button mdl-button--raised mdl-button--colored">
                 {t('Save Changes')}
               </button>
             </bem.AccountSettings__item>
-
             <bem.AccountSettings__item m='username'>
+              <bem.AccountBox__initials style={initialsStyle}>
+                {accountName.charAt(0)}
+              </bem.AccountBox__initials>
               <h4>{accountName}</h4>
-              <bem.AccountSettings__desc className="is-edge">
-                {t('Your username, bio, and links appear on your public profile')}
-              </bem.AccountSettings__desc>
             </bem.AccountSettings__item>
             <bem.AccountSettings__item m='fields'>
               <bem.AccountSettings__item>
-                <label>
+                <label htmlFor="requireAuth">
                   {t('Privacy')}
-                  <br/>
-                  <input type="checkbox" checked={this.state.requireAuth}
-                    onChange={this.requireAuthChange} />
+                </label>
+              </bem.AccountSettings__item>
+              <bem.AccountSettings__item>
+                <input type="checkbox" 
+                  id="requireAuth"
+                  checked={this.state.requireAuth}
+                  onChange={this.requireAuthChange} />
+                <label htmlFor="requireAuth">
                   {t('Require authentication to see forms and submit data')}
                 </label>
               </bem.AccountSettings__item>
@@ -192,7 +201,7 @@ export var AccountSettings = React.createClass({
               </bem.AccountSettings__item>
               <bem.AccountSettings__item m='password'>
                 <a href='/#/change-password'
-                    className="mdl-button mdl-js-button mdl-button--raised mdl-button--colored">
+                    className="mdl-button mdl-button--raised mdl-button--colored">
                   {t('Modify Password')}
                 </a>
               </bem.AccountSettings__item>
@@ -237,8 +246,7 @@ export var AccountSettings = React.createClass({
               <bem.AccountSettings__item>
                 <label>
                   {t('Bio')}
-                  <textarea value={this.state.bio}
-                    onChange={this.bioChange} />
+                  <TextareaAutosize onChange={this.bioChange} value={this.state.bio} id="bio" />
                 </label>
               </bem.AccountSettings__item>
 
@@ -309,31 +317,32 @@ export var AccountSettings = React.createClass({
                 </label>
               </bem.AccountSettings__item>
             </bem.AccountSettings__item>
-          </bem.AccountSettings__right>
+          </bem.AccountSettings__item>
         </bem.AccountSettings>
       </ui.Panel>
       </DocumentTitle>
     );
   }
-});
+};
 
-export var ChangePassword = React.createClass({
-  mixins: [
-    Reflux.ListenerMixin,
-  ],
-  getInitialState () {
+reactMixin(AccountSettings.prototype, Reflux.connect(stores.session, 'session'));
+reactMixin(AccountSettings.prototype, Reflux.ListenerMixin);
+
+export class ChangePassword extends React.Component {
+  constructor (props) {
+    super(props);
     this.errors = {};
-    return {errors: this.errors};
-  },
+    this.state = {errors: this.errors};
+  }
   componentDidMount () {
     this.listenTo(
       actions.auth.changePassword.failed, this.changePasswordFailed);
-  },
+  }
   validateRequired (what) {
     if (!this.state[what]) {
       this.errors[what] = t('This field is required.');
     }
-  },
+  }
   changePassword () {
     this.errors = {};
     this.validateRequired('currentPassword');
@@ -349,7 +358,7 @@ export var ChangePassword = React.createClass({
       );
     }
     this.setState({errors: this.errors});
-  },
+  }
   changePasswordFailed (jqXHR) {
     if (jqXHR.responseJSON.current_password) {
       this.errors.currentPassword = jqXHR.responseJSON.current_password;
@@ -358,56 +367,86 @@ export var ChangePassword = React.createClass({
       this.errors.newPassword = jqXHR.responseJSON.new_password;
     }
     this.setState({errors: this.errors});
-  },
+  }
   currentPasswordChange (e) {
     this.setState({currentPassword: e.target.value});
-  },
+  }
   newPasswordChange (e) {
     this.setState({newPassword: e.target.value});
-  },
+  }
   verifyPasswordChange (e) {
     this.setState({verifyPassword: e.target.value});
-  },
+  }
   render () {
+    if(!stores.session || !stores.session.currentAccount) {
+      return (
+        <ui.Panel>
+          <bem.AccountSettings>
+            <bem.AccountSettings__item>
+              {t('loading...')}
+            </bem.AccountSettings__item>
+          </bem.AccountSettings>
+        </ui.Panel>
+      );
+    }
+
+    var accountName = stores.session.currentAccount.username;
+    var initialsStyle = {
+      background: `#${stringToColor(accountName)}`
+    };
+
     return (
       <ui.Panel>
-        <bem.ChangePassword>
-          <h4>{t('Reset Password')}</h4>
-          <bem.ChangePassword__item>
-            <label>
-              {t('Current Password')}
-              <input type="password" value={this.state.currentPassword}
-                onChange={this.currentPasswordChange} />
-              {this.state.errors.currentPassword}
-            </label>
-            <a href={`${dataInterface.rootUrl}/accounts/password/reset/`}>
-              {t('Forgot Password?')}
-            </a>
-          </bem.ChangePassword__item>
-          <bem.ChangePassword__item>
-            <label>
-              {t('New Password')}
-              <input type="password" value={this.state.newPassword}
-                onChange={this.newPasswordChange} />
-              {this.state.errors.newPassword}
-            </label>
-          </bem.ChangePassword__item>
-          <bem.ChangePassword__item>
-            <label>
-              {t('Verify Password')}
-              <input type="password" value={this.state.verifyPassword}
-                onChange={this.verifyPasswordChange} />
-              {this.state.errors.verifyPassword}
-            </label>
-          </bem.ChangePassword__item>
-          <bem.ChangePassword__item  m='actions'>
-            <button onClick={this.changePassword}
-                    className="mdl-button mdl-js-button mdl-button--raised mdl-button--colored">
-              {t('Save Changes')}
-            </button>
-          </bem.ChangePassword__item>
-        </bem.ChangePassword>
+        <bem.AccountSettings>
+          <bem.ChangePassword>
+            <bem.AccountSettings__item m='username'>
+              <bem.AccountBox__initials style={initialsStyle}>
+                {accountName.charAt(0)}
+              </bem.AccountBox__initials>
+              <h4>{accountName}</h4>
+            </bem.AccountSettings__item>
+
+            <h4>{t('Reset Password')}</h4>
+
+            <bem.ChangePassword__item>
+              <label>
+                {t('Current Password')}
+                <input type="password" value={this.state.currentPassword}
+                  onChange={this.currentPasswordChange} />
+                {this.state.errors.currentPassword}
+              </label>
+              <a href={`${dataInterface.rootUrl}/accounts/password/reset/`}>
+                {t('Forgot Password?')}
+              </a>
+            </bem.ChangePassword__item>
+            <bem.ChangePassword__item>
+              <label>
+                {t('New Password')}
+                <input type="password" value={this.state.newPassword}
+                  onChange={this.newPasswordChange} />
+                {this.state.errors.newPassword}
+              </label>
+            </bem.ChangePassword__item>
+            <bem.ChangePassword__item>
+              <label>
+                {t('Verify Password')}
+                <input type="password" value={this.state.verifyPassword}
+                  onChange={this.verifyPasswordChange} />
+                {this.state.errors.verifyPassword}
+              </label>
+            </bem.ChangePassword__item>
+            <bem.ChangePassword__item  m='actions'>
+              <button onClick={this.changePassword}
+                      className="mdl-button mdl-button--raised mdl-button--colored">
+                {t('Save Changes')}
+              </button>
+            </bem.ChangePassword__item>
+          </bem.ChangePassword>
+        </bem.AccountSettings>
       </ui.Panel>
     );
   }
-});
+};
+
+reactMixin(ChangePassword.prototype, Reflux.connect(stores.session, 'session'));
+reactMixin(ChangePassword.prototype, Reflux.ListenerMixin);

@@ -2,10 +2,15 @@ KPI
 ===
 
 [![Build Status](https://travis-ci.org/kobotoolbox/kpi.svg?branch=develop)](https://travis-ci.org/kobotoolbox/kpi)
+[![Coverage Status](https://coveralls.io/repos/github/kobotoolbox/kpi/badge.svg?branch=master)](https://coveralls.io/github/kobotoolbox/kpi?branch=master)
 
 Python Dependencies
 -------------------
-Python dependencies are listed in `requirements.in`, which is then compiled to `requirements.txt` by [`pip-compile`](https://github.com/nvie/pip-tools). You may use `pip` directly with `requirements.txt`, but consider using instead the `pip-sync` command provided by [pip-tools](https://github.com/nvie/pip-tools). Do not add new dependencies directly to `requirements.txt`.
+Python dependencies are managed with `pip-compile` and `pip-sync` from the [`pip-tools`](https://github.com/jazzband/pip-tools/) package. The dependencies are listed in [`dependencies/pip/`](./dependencies/pip/), with core requirements in [`dependencies/pip/requirements.in`](./dependencies/pip/requirements.in). You may use `pip` directly with one of the compiled `dependencies/pip/*.txt` files, but consider using instead the `pip-sync`. **Do not** add new dependencies directly to the *compiled* `dependencies/pip/*.txt` files; instead, update the relevant the *source* `dependencies/pip/*.in` file(s), and execute `make pip_compile` after any changes. You can pass arguments to `pip-compile` with e.g. `make pip_compile ARGS='--upgrade-package=xlwt'`. To force building, use `make --always-make ...`.
+
+Ubuntu 16.04 `apt` Dependencies
+-------------------------------
+`apt` dependencies for Ubuntu 16.04 are listed in [`dependencies/apt_requirements.txt`](dependencies/apt_requirements.txt) and can be installed with e.g. `apt-get install $(cat dependencies/apt_requirements.txt)`.
 
 Downloading and compiling the translations
 ------------------------------------------
@@ -17,7 +22,7 @@ Downloading and compiling the translations
 
 Searching assets and collections
 --------------------------------
-Top-level (null-parent) assets and collections can be found by including `parent=` in the query string. For other searches, construct a string using the [Whoosh query language](https://pythonhosted.org/Whoosh/querylang.html) and pass it in as the `q` parameter, e.g. `/assets/?q=name:sanitation`. Fields indexed by Whoosh are:
+Top-level (null-parent) assets and collections can be found by including `parent=` in the query string. For other searches, construct a string using the [Whoosh query language](http://whoosh.readthedocs.io/en/latest/querylang.html) and pass it in as the `q` parameter, e.g. `/assets/?q=name:sanitation`. Fields indexed by Whoosh are:
 
 * `name`: a tokenized\* representation of the name;
 * `name__exact`: a space- and comma-escaped representation of the name, e.g. "Fun, Exciting Asset" would be indexed as "Fun--Exciting-Asset";
@@ -35,7 +40,7 @@ When the `q` parameter contains a search term without a specified field, e.g. `/
 
 Searching tags
 --------------
-Construct a string using the [Whoosh query language](https://pythonhosted.org/Whoosh/querylang.html) and pass it in as the `q` parameter, e.g. `/tags/?q=asset_type:block`. Fields indexed by Whoosh are:
+Construct a string using the [Whoosh query language](http://whoosh.readthedocs.io/en/latest/querylang.html) and pass it in as the `q` parameter, e.g. `/tags/?q=asset_type:block`. Fields indexed by Whoosh are:
 
 * `name__ngram`: the tag's name decomposed into n-grams, e.g. `?q=name__ngram:cat` would match tags named "dogs/cats" and "education";
 * `asset_type`: a multi-value field containing the types (e.g. `form`, `question`, `block`) of all tagged assets;

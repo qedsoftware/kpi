@@ -1,6 +1,7 @@
 import _ from 'underscore';
-import React from 'react/addons';
-import {Navigation} from 'react-router';
+import React from 'react';
+import reactMixin from 'react-mixin';
+import autoBind from 'react-autobind';
 import Reflux from 'reflux';
 import Select from 'react-select';
 
@@ -16,27 +17,21 @@ import {
   t,
 } from '../utils';
 
-var ListSearch = React.createClass({
-  mixins: [
-    searches.common,
-    Reflux.ListenerMixin,
-    Navigation,
-  ],
-  getDefaultProps () {
-    return {
-      searchContext: 'default',
-      placeholderText: t('Search...')
-    };
-  },
+class ListSearch extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {};
+    autoBind(this);
+  }
   componentDidMount () {
     this.listenTo(this.searchStore, this.searchStoreChanged);
-  },
+  }
   searchStoreChanged (searchStoreState) {
     if (searchStoreState.cleared) {
       this.refs['formlist-search'].setValue('');
     }
     this.setState(searchStoreState);
-  },
+  }
   render () {
     return (
           <bem.Search m={[this.state.searchState]} >
@@ -45,37 +40,47 @@ var ListSearch = React.createClass({
             <bem.Search__cancel m={{'active': this.state.searchState !== 'none'}} onClick={this.searchClear} />
           </bem.Search>
         );
-  },
-});
+  }
+};
 
-var ListTagFilter = React.createClass({
-  mixins: [
-    searches.common,
-    Reflux.ListenerMixin,
-  ],
-  getDefaultProps () {
-    return {
-      searchContext: 'default',
-      hidden: false,
-    };
-  },
-  getInitialState () {
-    return {
+ListSearch.defaultProps = {
+  searchContext: 'default',
+  placeholderText: t('Search...')
+};
+
+reactMixin(ListSearch.prototype, searches.common);
+reactMixin(ListSearch.prototype, Reflux.ListenerMixin);
+
+class ListTagFilter extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
       availableTags: [],
       tagsLoaded: false,
     };
-  },
+    autoBind(this);
+  }
   componentDidMount () {
     this.listenTo(stores.tags, this.tagsLoaded);
     this.listenTo(this.searchStore, this.searchStoreChanged);
     actions.resources.listTags(this.searchStore.filterTagQueryData());
-  },
+  }
   searchStoreChanged (searchStoreState) {
     if (searchStoreState.cleared) {
       // re-render to remove tags if the search was cleared
       this.setState(searchStoreState);
+    } else {
+      if (searchStoreState.searchTags) {
+        var tags = searchStoreState.searchTags.map(function(tag){
+          return tag.value;
+        }).join(',');
+        this.setState({
+          selectedTag: tags
+        });
+      }
     }
-  },
+
+  }
   tagsLoaded (tags) {
     this.setState({
       tagsLoaded: true,
@@ -84,20 +89,13 @@ var ListTagFilter = React.createClass({
           label: tag.name,
           value: tag.name.replace(/\s/g, '-'),
         };
-      })
+      }),
+      selectedTag: ''
     });
-  },
-  getTagStringFromSearchStore () {
-    if (!!this.searchStore.state.searchTags) {
-      return this.searchStore.state.searchTags.map(function(tag){
-        return tag.value;
-      }).join(',');
-    }
-    return '';
-  },
-  onTagChange (tagString, tagList) {
-    this.searchTagsChange(tagList);
-  },
+  }
+  onTagChange (tagString) {
+    this.searchTagsChange(tagString);
+  }
   render () {
     if (!this.state.tagsLoaded) {
       return (
@@ -107,7 +105,7 @@ var ListTagFilter = React.createClass({
               name="tags"
               value=""
               disabled={true}
-              multi={true}
+              multi={false}
               placeholder={t('Tags are loading...')}
               className={this.props.hidden ? 'hidden' : null}
             />
@@ -121,35 +119,37 @@ var ListTagFilter = React.createClass({
             name="tags"
             multi={true}
             placeholder={t('Search Tags')}
+            noResultsText={t('No results found')}
             options={this.state.availableTags}
             onChange={this.onTagChange}
             className={this.props.hidden ? 'hidden' : null}
-            value={this.getTagStringFromSearchStore()}
+            value={this.state.selectedTag}
           />
       </bem.tagSelect>
     );
-  },
-});
+  }
+};
 
-var ListCollectionFilter = React.createClass({
-  mixins: [
-    searches.common,
-    Reflux.ListenerMixin,
-  ],
-  getDefaultProps () {
-    return {
-      searchContext: 'default',
-    };
-  },
-  getInitialState () {
-    return {
+ListTagFilter.defaultProps = {
+  searchContext: 'default',
+  hidden: false,
+};
+
+reactMixin(ListTagFilter.prototype, searches.common);
+reactMixin(ListTagFilter.prototype, Reflux.ListenerMixin);
+
+class ListCollectionFilter extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
       availableCollections: [],
       collectionsLoaded: false,
     };
-  },
+    autoBind(this);
+  }
   componentDidMount () {
     this.queryCollections();
-  },
+  }
   queryCollections () {
     dataInterface.listCollections().then((collections)=>{
       var availableCollections = collections.results.filter((value) => {
@@ -163,14 +163,25 @@ var ListCollectionFilter = React.createClass({
             label: collection.name,
             value: collection.uid,
           };
-        })
+        }),
+        selectedCollection: ''
       });
 
     });
-  },
+  }
   onCollectionChange (collectionUid) {
-    this.searchCollectionChange(collectionUid);
-  },
+    if (collectionUid) {
+      this.searchCollectionChange(collectionUid.value);
+      this.setState({
+        selectedCollection: collectionUid.value
+      });
+    } else {
+      this.searchClear();
+      this.setState({
+        selectedCollection: ''
+      });
+    }
+  }
   render () {
     if (!this.state.collectionsLoaded) {
       return (
@@ -189,38 +200,38 @@ var ListCollectionFilter = React.createClass({
             placeholder={t('Select Collection Name')}
             options={this.state.availableCollections}
             onChange={this.onCollectionChange}
+            value={this.state.selectedCollection}
           />
       </bem.collectionFilter>
     );
-  },
-});
+  }
+};
 
-var ListExpandToggle = React.createClass({
-  mixins: [
-    searches.common,
-    Reflux.ListenerMixin,
-  ],
-  getInitialState () {
-    return {
+ListCollectionFilter.defaultProps = {
+  searchContext: 'default',
+};
+
+reactMixin(ListCollectionFilter.prototype, searches.common);
+reactMixin(ListCollectionFilter.prototype, Reflux.ListenerMixin);
+
+class ListExpandToggle extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
       assetNavExpanded: stores.pageState.state.assetNavExpanded
     };
-  },
+    autoBind(this);
+  }
   componentDidMount () {
     this.listenTo(this.searchStore, this.searchStoreChanged);
-  },
+  }
   searchStoreChanged (searchStoreState) {
     this.setState(searchStoreState);
-  },
-  handleChange: function(/*event*/) {
+  }
+  handleChange (/*event*/) {
     stores.pageState.setState({assetNavExpanded: !this.state.assetNavExpanded});
     this.setState({assetNavExpanded: !this.state.assetNavExpanded});
-  },
-  getDefaultProps () {
-    return {
-      searchContext: 'default',
-      hidden: false,
-    };
-  },
+  }
   render () {
     var count,
         isSearch = this.state.searchResultsDisplayed;
@@ -237,34 +248,36 @@ var ListExpandToggle = React.createClass({
           {count} {t('assets found')}
         </bem.LibNav__count>
         <bem.LibNav__expandedToggle>
-          <label className='mdl-checkbox mdl-js-checkbox mdl-js-ripple-effect' htmlFor='expandedToggleCheckbox'>
-            <input type='checkbox' className='mdl-checkbox__input' id='expandedToggleCheckbox' checked={this.state.assetNavExpanded} onChange={this.handleChange} />
-            <span className='mdl-checkbox__label'>{t('expand details')} {this.state.assetNavExpanded}</span>
+          <input type='checkbox' className='mdl-checkbox__input' id='expandedToggleCheckbox' checked={this.state.assetNavExpanded} onChange={this.handleChange} />
+          <label htmlFor='expandedToggleCheckbox'>
+            {t('expand details')}
           </label>
         </bem.LibNav__expandedToggle>
       </bem.LibNav__expanded>
       );
-  },
-});
+  }
+};
 
-var ListSearchSummary = React.createClass({
-  mixins: [
-    searches.common,
-    Reflux.ListenerMixin,
-    Navigation,
-  ],
+ListExpandToggle.defaultProps = {
+  searchContext: 'default',
+  hidden: false,
+};
+
+reactMixin(ListExpandToggle.prototype, searches.common);
+reactMixin(ListExpandToggle.prototype, Reflux.ListenerMixin);
+
+class ListSearchSummary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {};
+    autoBind(this);
+  }
   componentDidMount () {
     this.listenTo(this.searchStore, this.searchChanged);
-  },
+  }
   searchChanged (state) {
     this.setState(state);
-  },
-  getDefaultProps () {
-    return {
-      assetDescriptor: 'item',
-      assetDescriptorPlural: 'items',
-    };
-  },
+  }
   render () {
     var messages = [], modifier,
         s = this.state;
@@ -309,26 +322,29 @@ var ListSearchSummary = React.createClass({
           })}
         </bem.Search__summary>
       );
-  },
-});
+  }
+};
 
-var ListSearchDebug = React.createClass({
-  mixins: [
-    searches.common,
-    Reflux.ListenerMixin,
-    Navigation,
-  ],
-  getDefaultProps () {
-    return {
-      searchContext: 'default',
-    };
-  },
+ListSearchSummary.defaultProps = {
+  assetDescriptor: 'item',
+  assetDescriptorPlural: 'items',
+};
+
+reactMixin(ListSearchSummary.prototype, searches.common);
+reactMixin(ListSearchSummary.prototype, Reflux.ListenerMixin);
+
+class ListSearchDebug extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {};
+    autoBind(this);
+  }
   componentDidMount () {
     this.listenTo(this.searchStore, this.searchStoreChanged);
-  },
+  }
   searchStoreChanged (searchStoreState) {
     this.setState(searchStoreState);
-  },
+  }
   render () {
     var searchResultsSuccess = this.state.searchResultsSuccess,
         searchDebugQuery = this.state.searchDebugQuery;
@@ -352,9 +368,15 @@ var ListSearchDebug = React.createClass({
               : null}
             </bem.CollectionNav__searchcriteria>
         );
-  },
-});
+  }
+};
 
+ListSearchDebug.defaultProps = {
+  searchContext: 'default',
+};
+
+reactMixin(ListSearchDebug.prototype, searches.common);
+reactMixin(ListSearchDebug.prototype, Reflux.ListenerMixin);
 
 export default {
   // List: List,

@@ -1,5 +1,6 @@
 module.exports = do ->
   _t = require('utils').t
+  replaceSupportEmail = require('utils').replaceSupportEmail
 
   expandingSpacerHtml = """
       <div class="survey__row__spacer  row clearfix expanding-spacer-between-rows expanding-spacer-between-rows--depr">
@@ -62,6 +63,7 @@ module.exports = do ->
           </div>
           <div class="card__text">
             <span class="card__header-title js-cancel-select-row js-cancel-sort"></span>
+            <p class="card__header-subtitle js-cancel-select-row js-cancel-sort" style="display:none"></p>
           </div>
           <div class="card__buttons">
             <span class="card__buttons__button card__buttons__button--settings card__buttons__button--gray js-toggle-card-settings" data-button-name="settings"><i class="fa fa-cog"></i></span>
@@ -234,7 +236,7 @@ module.exports = do ->
     """
     <div class="card card--error">
       #{_t("Row could not be displayed:")} <pre>#{atts}</pre>
-      <em>#{_t("This question could not be imported. Please re-create it manually. Please contact us at support@kobotoolbox.org so we can fix this bug!")}</em>
+      <em>#{replaceSupportEmail(_t("This question could not be imported. Please re-create it manually. Please contact us at support@kobotoolbox.org so we can fix this bug!"))}</em>
     </div>
     #{expandingSpacerHtml}
     """

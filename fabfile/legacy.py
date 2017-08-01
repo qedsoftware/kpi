@@ -55,13 +55,13 @@ def setup_env(deployment_name):
                                      'kobo-uwsgi-master.pid')
     env.kpi_path = os.path.join(env.home, env.kpi_path)
     env.pip_requirements_file = os.path.join(env.kpi_path,
-                                             'requirements.txt')
+                                             'dependencies/pip/external_services.txt')
 
 
 def deploy_ref(deployment_name, ref, force=False):
     setup_env(deployment_name)
     with cd(env.kpi_path):
-        run("git fetch --all")
+        run("git fetch --all --tags")
         # Make sure we're not moving to an older codebase
         git_output = run_no_pty(
             'git rev-list {}..HEAD --count 2>&1'.format(ref))
@@ -87,12 +87,11 @@ def deploy_ref(deployment_name, ref, force=False):
         with kobo_workon(env.kpi_virtualenv_name):
             run("bower install")
             run("npm install")
-            run("grunt buildall")
-            run("npm run build-production")
+            run("gulp copy")
+            run("npm run build")
 
             # KPI and KF share a virtualenv but have distinct settings modules
             with prefix('DJANGO_SETTINGS_MODULE=kobo.settings'):
-                run("python manage.py syncdb")
                 run("python manage.py migrate")
                 run("python manage.py collectstatic --noinput")
 
@@ -100,11 +99,12 @@ def deploy_ref(deployment_name, ref, force=False):
         run("date > LAST_UPDATE.txt")
 
     run("sudo restart kpi_celeryd")
+    run("sudo restart kpi_sync_kobocat_xforms_celeryd")
     run("sudo service uwsgi reload")
 
 
-def deploy(deployment_name, branch='master'):
-    deploy_ref(deployment_name, 'origin/{}'.format(branch))
+def deploy(deployment_name, branch='origin/master'):
+    deploy_ref(deployment_name, branch)
 
 
 def transfer_data(deployment_name):

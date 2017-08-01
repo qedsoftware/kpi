@@ -34,10 +34,13 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 from rest_framework.authtoken.models import Token
+from rest_framework.views import APIView
+from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from taggit.models import Tag
 
 from .filters import KpiAssignedObjectPermissionsFilter
+from .filters import AssetOwnerFilterBackend
 from .filters import KpiObjectPermissionsFilter, RelatedAssetPermissionsFilter
 from .filters import SearchFilter
 from .highlighters import highlight_xform
@@ -45,6 +48,7 @@ from hub.models import SitewideMessage
 from .models import (
     Collection,
     Asset,
+    AssetVersion,
     AssetSnapshot,
     ImportTask,
     ObjectPermission,
@@ -68,10 +72,12 @@ from .renderers import (
     XlsRenderer,)
 from .serializers import (
     AssetSerializer, AssetListSerializer,
+    AssetVersionListSerializer,
+    AssetVersionSerializer,
     AssetSnapshotSerializer,
     SitewideMessageSerializer,
     CollectionSerializer, CollectionListSerializer,
-    UserSerializer, UserListSerializer,
+    UserSerializer,
     CurrentUserSerializer, CreateUserSerializer,
     TagSerializer, TagListSerializer,
     ImportTaskSerializer, ImportTaskListSerializer,
@@ -119,17 +125,34 @@ class ObjectPermissionViewSet(NoUpdateModelViewSet):
     lookup_field = 'uid'
     filter_backends = (KpiAssignedObjectPermissionsFilter, )
 
-    def _requesting_user_can_share(self, affected_object):
-        share_permission = 'share_{}'.format(affected_object._meta.model_name)
+    def _requesting_user_can_share(self, affected_object, codename):
+        r"""
+            Return `True` if `self.request.user` is allowed to grant and revoke
+            `codename` on `affected_object`. For `Collection`, this is always
+            the same as checking that `self.request.user` has the
+            `share_collection` permission on `affected_object`. For `Asset`,
+            the result is determined by either `share_asset` or
+            `share_submissions`, depending on the `codename`.
+            :type affected_object: :py:class:Asset or :py:class:Collection
+            :type codename: str
+            :rtype bool
+        """
+        model_name = affected_object._meta.model_name
+        if model_name == 'asset' and codename.endswith('_submissions'):
+            share_permission = 'share_submissions'
+        else:
+            share_permission = 'share_{}'.format(model_name)
         return affected_object.has_perm(self.request.user, share_permission)
 
     def perform_create(self, serializer):
         # Make sure the requesting user has the share_ permission on
         # the affected object
-        affected_object = serializer.validated_data['content_object']
-        if not self._requesting_user_can_share(affected_object):
-            raise exceptions.PermissionDenied()
-        serializer.save()
+        with transaction.atomic():
+            affected_object = serializer.validated_data['content_object']
+            codename = serializer.validated_data['permission'].codename
+            if not self._requesting_user_can_share(affected_object, codename):
+                raise exceptions.PermissionDenied()
+            serializer.save()
 
     def perform_destroy(self, instance):
         # Only directly-applied permissions may be modified; forbid deleting
@@ -141,13 +164,15 @@ class ObjectPermissionViewSet(NoUpdateModelViewSet):
             )
         # Make sure the requesting user has the share_ permission on
         # the affected object
-        affected_object = instance.content_object
-        if not self._requesting_user_can_share(affected_object):
-            raise exceptions.PermissionDenied()
-        instance.content_object.remove_perm(
-            instance.user,
-            instance.permission.codename
-        )
+        with transaction.atomic():
+            affected_object = instance.content_object
+            codename = instance.permission.codename
+            if not self._requesting_user_can_share(affected_object, codename):
+                raise exceptions.PermissionDenied()
+            instance.content_object.remove_perm(
+                instance.user,
+                instance.permission.codename
+            )
 
 class CollectionViewSet(viewsets.ModelViewSet):
     # Filtering handled by KpiObjectPermissionsFilter.filter_queryset()
@@ -283,9 +308,10 @@ class TagViewSet(viewsets.ReadOnlyModelViewSet):
             return TagSerializer
 
 
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
+class UserViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
     """
-    This viewset automatically provides `list` and `detail` actions.
+    This viewset provides only the `detail` action; `list` is *not* provided to
+    avoid disclosing every username in the database
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -295,11 +321,8 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         super(UserViewSet, self).__init__(*args, **kwargs)
         self.authentication_classes += [ApplicationTokenAuthentication]
 
-    def get_serializer_class(self):
-        if self.action == 'list':
-            return UserListSerializer
-        else:
-            return UserSerializer
+    def list(self, request, *args, **kwargs):
+        raise exceptions.PermissionDenied()
 
 
 class CurrentUserViewSet(viewsets.ModelViewSet):
@@ -520,7 +543,37 @@ class AssetSnapshotViewSet(NoUpdateModelViewSet):
             return Response(response_data, template_name='preview_error.html')
 
 
-class AssetViewSet(viewsets.ModelViewSet):
+class AssetVersionViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
+    model = AssetVersion
+    lookup_field = 'uid'
+    filter_backends = (
+            AssetOwnerFilterBackend,
+        )
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return AssetVersionListSerializer
+        else:
+            return AssetVersionSerializer
+
+    def get_queryset(self):
+        _asset_uid = self.get_parents_query_dict()['asset']
+        _deployed = self.request.query_params.get('deployed', None)
+        _queryset = self.model.objects.filter(asset__uid=_asset_uid)
+        if _deployed is not None:
+            _queryset = _queryset.filter(deployed=_deployed)
+        _queryset = _queryset.filter(asset__uid=_asset_uid)
+        if self.action == 'list':
+            # Save time by only retrieving fields from the DB that the
+            # serializer will use
+            _queryset = _queryset.only(
+                'uid', 'deployed', 'date_modified', 'asset_id')
+        # `AssetVersionListSerializer.get_url()` asks for the asset UID
+        _queryset = _queryset.select_related('asset__uid')
+        return _queryset
+
+
+class AssetViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
     """
     * Assign a asset to a collection <span class='label label-warning'>partially implemented</span>
     * Run a partial update of a asset <span class='label label-danger'>TODO</span>
@@ -725,6 +778,11 @@ class AssetViewSet(viewsets.ModelViewSet):
             user = get_anonymous_user()
         serializer.save(owner=user)
 
+    def perform_destroy(self, instance):
+        if hasattr(instance, 'has_deployment') and instance.has_deployment:
+            instance.deployment.delete()
+        return super(AssetViewSet, self).perform_destroy(instance)
+
     def finalize_response(self, request, response, *args, **kwargs):
         ''' Manipulate the headers as appropriate for the requested format.
         See https://github.com/tomchristie/django-rest-framework/issues/1041#issuecomment-22709658.
@@ -777,3 +835,49 @@ class UserCollectionSubscriptionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+
+class TokenView(APIView):
+    def _which_user(self, request):
+        '''
+        Determine the user from `request`, allowing superusers to specify
+        another user by passing the `username` query parameter
+        '''
+        if request.user.is_anonymous():
+            raise exceptions.NotAuthenticated()
+
+        if 'username' in request.query_params:
+            # Allow superusers to get others' tokens
+            if request.user.is_superuser:
+                user = get_object_or_404(
+                    User,
+                    username=request.query_params['username']
+                )
+            else:
+                raise exceptions.PermissionDenied()
+        else:
+            user = request.user
+        return user
+
+    def get(self, request, *args, **kwargs):
+        ''' Retrieve an existing token only '''
+        user = self._which_user(request)
+        token = get_object_or_404(Token, user=user)
+        return Response({'token': token.key})
+
+    def post(self, request, *args, **kwargs):
+        ''' Return a token, creating a new one if none exists '''
+        user = self._which_user(request)
+        token, created = Token.objects.get_or_create(user=user)
+        return Response(
+            {'token': token.key},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
+
+    def delete(self, request, *args, **kwargs):
+        ''' Delete an existing token and do not generate a new one '''
+        user = self._which_user(request)
+        with transaction.atomic():
+            token = get_object_or_404(Token, user=user)
+            token.delete()
+        return Response({}, status=status.HTTP_204_NO_CONTENT)

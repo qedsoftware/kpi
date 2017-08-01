@@ -4,8 +4,8 @@ FROM kobotoolbox/koboform_base:latest
 # Note: Additional environment variables have been set in `Dockerfile.koboform_base`.
 ENV KPI_LOGS_DIR=/srv/logs \
     KPI_WHOOSH_DIR=/srv/whoosh \
-    GRUNT_BUILD_DIR=/srv/grunt_build \
-    GRUNT_FONTS_DIR=/srv/grunt_fonts \
+    BUILD_DIR=/srv/build \
+    FONTS_DIR=/srv/fonts \
     WEBPACK_STATS_PATH=/srv/webpack-stats.json \
     DJANGO_SETTINGS_MODULE=kobo.settings \
     # The mountpoint of a volume shared with the `nginx` container. Static files will
@@ -17,11 +17,11 @@ ENV KPI_LOGS_DIR=/srv/logs \
 # Install any additional `apt` packages. #
 ##########################################
 
-COPY ./apt_requirements.txt "${KPI_SRC_DIR}/"
-# Only install if the current version of `apt_requirements.txt` differs from the one used in the base image.
-RUN if ! diff "${KPI_SRC_DIR}/apt_requirements.txt" /srv/tmp/base_apt_requirements.txt; then \
+COPY ./dependencies/apt_requirements.txt "${KPI_SRC_DIR}/dependencies/"
+# Only install if the current version of `dependencies/apt_requirements.txt` differs from the one used in the base image.
+RUN if ! diff "${KPI_SRC_DIR}/dependencies/apt_requirements.txt" /srv/tmp/base__apt_requirements.txt; then \
         apt-get update -qq && \
-        apt-get install -qqy $(cat "${KPI_SRC_DIR}/apt_requirements.txt") && \
+        apt-get install -qqy $(cat "${KPI_SRC_DIR}/dependencies/apt_requirements.txt") && \
         apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \ 
     ; fi
 
@@ -30,10 +30,10 @@ RUN if ! diff "${KPI_SRC_DIR}/apt_requirements.txt" /srv/tmp/base_apt_requiremen
 # Re-sync `pip` packages. #
 ###########################
 
-COPY ./requirements.txt "${KPI_SRC_DIR}/"
-# Only install if the current version of `requirements.txt` differs from the one used in the base image.
-RUN if ! diff "${KPI_SRC_DIR}/requirements.txt" /srv/tmp/base_requirements.txt; then \
-        pip-sync "${KPI_SRC_DIR}/requirements.txt" 1>/dev/null \
+COPY ./dependencies/pip/external_services.txt "${KPI_SRC_DIR}/dependencies/pip/"
+# Only install if the current version of `dependencies/pip/external_services.txt` differs from the one used in the base image.
+RUN if ! diff "${KPI_SRC_DIR}/dependencies/pip/external_services.txt" /srv/tmp/base__external_services.txt; then \
+        pip-sync "${KPI_SRC_DIR}/dependencies/pip/external_services.txt" 1>/dev/null \
     ; fi
 
 
@@ -65,23 +65,22 @@ RUN if ! diff "${KPI_SRC_DIR}/bower.json" /srv/tmp/base_bower.json && \
 # Build client code. #
 ######################
 
-COPY ./Gruntfile.js ${KPI_SRC_DIR}/
-COPY ./webpack* ${KPI_SRC_DIR}/
+COPY ./gulpfile.js ${KPI_SRC_DIR}/gulpfile.js
+COPY ./webpack ${KPI_SRC_DIR}/webpack
 COPY ./.eslintrc ${KPI_SRC_DIR}/.eslintrc
-COPY ./helper/webpack-config.js ${KPI_SRC_DIR}/helper/webpack-config.js
 COPY ./test ${KPI_SRC_DIR}/test
 
 COPY ./jsapp ${KPI_SRC_DIR}/jsapp
 
-RUN mkdir "${GRUNT_BUILD_DIR}" && \
-    mkdir "${GRUNT_FONTS_DIR}" && \
-    ln -s "${GRUNT_BUILD_DIR}" "${KPI_SRC_DIR}/jsapp/compiled" && \
+RUN mkdir "${BUILD_DIR}" && \
+    mkdir "${FONTS_DIR}" && \
+    ln -s "${BUILD_DIR}" "${KPI_SRC_DIR}/jsapp/compiled" && \
     rm -rf "${KPI_SRC_DIR}/jsapp/fonts" && \
-    ln -s "${GRUNT_FONTS_DIR}" "${KPI_SRC_DIR}/jsapp/fonts" && \
+    ln -s "${FONTS_DIR}" "${KPI_SRC_DIR}/jsapp/fonts" && \
     # FIXME: Move `webpack-stats.json` to some build target directory so these ad-hoc workarounds don't continue to accumulate.
     ln -s "${WEBPACK_STATS_PATH}" webpack-stats.json
 
-RUN grunt copy && npm run build-production
+RUN gulp copy && npm run build
 
 
 ###############################################
@@ -94,8 +93,8 @@ COPY . "${KPI_SRC_DIR}"
 # Restore the backed-up package installation directories.
 RUN ln -s "${KPI_NODE_PATH}" "${KPI_SRC_DIR}/node_modules" && \
     ln -s "${BOWER_COMPONENTS_DIR}/" "${KPI_SRC_DIR}/jsapp/xlform/components" && \
-    ln -s "${GRUNT_BUILD_DIR}" "${KPI_SRC_DIR}/jsapp/compiled" && \
-    ln -s "${GRUNT_FONTS_DIR}" "${KPI_SRC_DIR}/jsapp/fonts" && \
+    ln -s "${BUILD_DIR}" "${KPI_SRC_DIR}/jsapp/compiled" && \
+    ln -s "${FONTS_DIR}" "${KPI_SRC_DIR}/jsapp/fonts" && \
     ln -s "${WEBPACK_STATS_PATH}" webpack-stats.json
 
 
@@ -111,7 +110,7 @@ RUN python manage.py collectstatic --noinput
 #####################################
 
 RUN git submodule init && \
-    git submodule update && \
+    git submodule update --remote && \
     python manage.py compilemessages
 
 
@@ -120,7 +119,6 @@ RUN git submodule init && \
 #################################################################
 
 RUN mkdir -p "${KPI_LOGS_DIR}/" "${KPI_WHOOSH_DIR}/" "${KPI_SRC_DIR}/emails"
-VOLUME "${KPI_LOGS_DIR}/" "${KPI_WHOOSH_DIR}/" "${KPI_SRC_DIR}/emails"
 
 
 #################################################

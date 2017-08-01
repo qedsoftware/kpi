@@ -1,13 +1,14 @@
-import React from 'react/addons';
+import React from 'react';
+import PropTypes from 'prop-types';
+import reactMixin from 'react-mixin';
+import autoBind from 'react-autobind';
 import Reflux from 'reflux';
-import {Navigation} from 'react-router';
 
 import searches from '../searches';
 import mixins from '../mixins';
 import stores from '../stores';
 import {dataInterface} from '../dataInterface';
 import bem from '../bem';
-import mdl from '../libs/rest_framework/material';
 import AssetRow from './assetrow';
 import DocumentTitle from 'react-document-title';
 import $ from 'jquery';
@@ -15,47 +16,36 @@ import $ from 'jquery';
 import {
   parsePermissions,
   t,
-  isLibrary,
 } from '../utils';
 
-var SearchCollectionList = React.createClass({
-  mixins: [
-    searches.common,
-    Navigation,
-    mixins.clickAssets,
-    Reflux.connect(stores.selectedAsset),
-    Reflux.ListenerMixin,
-  ],
-  getInitialState () {
+class SearchCollectionList extends Reflux.Component {
+  constructor(props) {
+    super(props);
     var selectedCategories = {
       'Draft': true,
       'Deployed': true, 
       'Archived': true
-    }
-    return {
+    };
+    this.state = {
       selectedCategories: selectedCategories,
       ownedCollections: [],
       fixedHeadings: '',
       fixedHeadingsWidth: 'auto'
     };
-  },
-  getDefaultProps () {
-    return {
-      assetRowClass: AssetRow,
-      searchContext: 'default',
-    };
-  },
+    this.store = stores.selectedAsset;
+    autoBind(this);
+  }
   componentDidMount () {
     this.listenTo(this.searchStore, this.searchChanged);
     this.queryCollections();
-  },
+  }
   searchChanged (searchStoreState) {
     this.setState(searchStoreState);
     if (searchStoreState.searchState === 'done')
       this.queryCollections();
-  },
+  }
   queryCollections () {
-    if (isLibrary(this.context.router)) {
+    if (this.props.searchContext.store.filterTags != 'asset_type:survey') {
       dataInterface.listCollections().then((collections)=>{
         this.setState({
           ownedCollections: collections.results.filter((value) => {
@@ -75,16 +65,16 @@ var SearchCollectionList = React.createClass({
         });
       });
     }
-  },
-  handleScroll: function(event) {
+  }
+  handleScroll (event) {
     if (this.props.searchContext.store.filterTags == 'asset_type:survey') {
       let offset = $(event.target).children('.asset-list').offset().top;
       this.setState({
-        fixedHeadings: offset < -55 ? 'fixed-headings' : '',
-        fixedHeadingsWidth: offset < -55 ? $(event.target).children('.asset-list').width() + 'px' : 'auto',
+        fixedHeadings: offset < -105 ? 'fixed-headings' : '',
+        fixedHeadingsWidth: offset < -105 ? $(event.target).children('.asset-list').width() + 'px' : 'auto',
       });
     }
-  },
+  }
 
   renderAssetRow (resource) {
     var currentUsername = stores.session.currentAccount && stores.session.currentAccount.username;
@@ -103,7 +93,7 @@ var SearchCollectionList = React.createClass({
                       {...resource}
                         />
       );
-  },
+  }
   toggleCategory(c) {
     return function (e) {
     var selectedCategories = this.state.selectedCategories;
@@ -112,87 +102,88 @@ var SearchCollectionList = React.createClass({
         selectedCategories: selectedCategories,
       });
     }.bind(this)
-  },
+  }
   renderHeadings () {
     return [
       (
-        <bem.Library_breadcrumb className={this.state.parentName ? '' : 'hidden'}>
-          <span>{t('Library')}</span>
-          <span className="separator"><i className="fa fa-caret-right" /></span>
-          <span>{this.state.parentName}</span>
-        </bem.Library_breadcrumb>
+        <bem.List__heading key='1'>
+          <span className={this.state.parentName ? 'parent' : ''}>{t('My Library')}</span>
+          {this.state.parentName &&
+            <span>
+              <i className="k-icon-next" />
+              <span>{this.state.parentName}</span>
+            </span>
+          }
+        </bem.List__heading>
       ),
       (
-        <bem.AssetListSorts className="mdl-grid">
-          <bem.AssetListSorts__item m={'name'} className="mdl-cell mdl-cell--6-col mdl-cell--3-col-tablet">
+        <bem.AssetListSorts className="mdl-grid" key='2'>
+          <bem.AssetListSorts__item m={'name'} className="mdl-cell mdl-cell--8-col mdl-cell--4-col-tablet mdl-cell--2-col-phone">
             {t('Name')}
           </bem.AssetListSorts__item>
-          <bem.AssetListSorts__item m={'owner'} className="mdl-cell mdl-cell--2-col mdl-cell--2-col-tablet">
+          <bem.AssetListSorts__item m={'owner'} className="mdl-cell mdl-cell--2-col mdl-cell--2-col-tablet mdl-cell--1-col-phone">
             {t('Owner')}
           </bem.AssetListSorts__item>
-          <bem.AssetListSorts__item m={'modified'} className="mdl-cell mdl-cell--3-col mdl-cell--2-col-tablet">
+          <bem.AssetListSorts__item m={'modified'} className="mdl-cell mdl-cell--2-col mdl-cell--2-col-tablet mdl-cell--1-col-phone">
             {t('Last Modified')}
-          </bem.AssetListSorts__item>
-          <bem.AssetListSorts__item m={'questions'} className="mdl-cell mdl-cell--1-col mdl-cell--1-col-tablet">
-            {t('Questions')}
           </bem.AssetListSorts__item>
         </bem.AssetListSorts>
       )];
-  },
+  }
   renderGroupedHeadings () {
     return (
         <bem.AssetListSorts className="mdl-grid" style={{width: this.state.fixedHeadingsWidth}}>
-          <bem.AssetListSorts__item m={'name'} className="mdl-cell mdl-cell--5-col mdl-cell--3-col-tablet">
+          <bem.AssetListSorts__item m={'name'} className="mdl-cell mdl-cell--5-col mdl-cell--4-col-tablet mdl-cell--2-col-phone">
             {t('Name')}
           </bem.AssetListSorts__item>
-          <bem.AssetListSorts__item m={'owner'} className="mdl-cell mdl-cell--2-col mdl-cell--2-col-tablet">
+          <bem.AssetListSorts__item m={'owner'} className="mdl-cell mdl-cell--2-col mdl-cell--1-col-tablet mdl-cell--hide-phone">
             {t('Shared by')}
           </bem.AssetListSorts__item>
-          <bem.AssetListSorts__item m={'created'} className="mdl-cell mdl-cell--2-col mdl-cell--hide-tablet">
+          <bem.AssetListSorts__item m={'created'} className="mdl-cell mdl-cell--2-col mdl-cell--hide-tablet mdl-cell--hide-phone">
             {t('Created')}
           </bem.AssetListSorts__item>
-          <bem.AssetListSorts__item m={'modified'} className="mdl-cell mdl-cell--2-col mdl-cell--2-col-tablet">
+          <bem.AssetListSorts__item m={'modified'} className="mdl-cell mdl-cell--2-col mdl-cell--2-col-tablet mdl-cell--1-col-phone">
             {t('Last Modified')}
           </bem.AssetListSorts__item>
-          <bem.AssetListSorts__item m={'submissions'} className="mdl-cell mdl-cell--1-col mdl-cell--1-col-tablet">
-            {t('Submissions')}
+          <bem.AssetListSorts__item m={'submissions'} className="mdl-cell mdl-cell--1-col mdl-cell--1-col-tablet mdl-cell--1-col-phone" >
+              {t('Submissions')}
           </bem.AssetListSorts__item>
         </bem.AssetListSorts>
       );
-  },
+  }
   renderGroupedResults () {
-    return ['Deployed', 'Draft', 'Archived' /*, 'deleted'*/].map(
-      (category) => {
-        var categoryVisible = this.state.selectedCategories[category];
-        if (this.state.defaultQueryCategorizedResultsLists[category].length > 0) {
-          return [
-            <bem.AssetList__heading m={[category, categoryVisible ? 'visible' : 'collapsed']} 
-                                    // onClick={this.toggleCategory(category)}
-                                    >
-              {t(category)}
-              {this.state.searchResultsDisplayed ? ` (${this.state.searchResultsCategorizedResultsLists[category].length})` : ` (${this.state.defaultQueryCategorizedResultsLists[category].length})`}
-            </bem.AssetList__heading>,
-            <bem.AssetItems m={[category, categoryVisible ? 'visible' : 'collapsed']}>
-              {this.renderGroupedHeadings()}
-              {
-                (()=>{
-                  if (this.state.searchResultsDisplayed) {
-                    return this.state.searchResultsCategorizedResultsLists[category].map(
-                      this.renderAssetRow)
-                  } else {
-                    return this.state.defaultQueryCategorizedResultsLists[category].map(
-                      this.renderAssetRow)
-                  }
-                })()
-              }
-            </bem.AssetItems>
-          ];
-        } else {
-          return false;
+    var searchResultsBucket = 'defaultQueryCategorizedResultsLists';
+    if (this.state.searchResultsDisplayed)
+      searchResultsBucket = 'searchResultsCategorizedResultsLists';
+
+    var results = ['Deployed', 'Draft', 'Archived'].map(
+      (category, i) => {
+        if (this.state[searchResultsBucket][category].length < 1) {
+          return []
         }
+        return [
+          <bem.List__subheading key={i}>
+            {t(category)}
+          </bem.List__subheading>,
+          <bem.AssetItems m={i+1} key={i+2}>
+            {this.renderGroupedHeadings()}
+            {
+              (()=>{
+                return this.state[[searchResultsBucket]][category].map(
+                  this.renderAssetRow)
+              })()
+            }
+          </bem.AssetItems>
+        ];
       }
-    );    
-  },
+    );
+
+    return [
+      <bem.List__heading key="h1" className="is-edge">
+        {t('Active Projects')}
+      </bem.List__heading>,
+      results];
+  }
 
   render () {
     var s = this.state;
@@ -280,10 +271,20 @@ var SearchCollectionList = React.createClass({
         </bem.List>
       </DocumentTitle>
       );
-  },
-  componentDidUpdate() {
-    mdl.upgradeDom();
   }
-});
+};
+
+SearchCollectionList.defaultProps = {
+  assetRowClass: AssetRow,
+  searchContext: 'default',
+};
+
+SearchCollectionList.contextTypes = {
+  router: PropTypes.object
+};
+
+reactMixin(SearchCollectionList.prototype, searches.common);
+reactMixin(SearchCollectionList.prototype, mixins.clickAssets);
+reactMixin(SearchCollectionList.prototype, Reflux.ListenerMixin);
 
 export default SearchCollectionList;

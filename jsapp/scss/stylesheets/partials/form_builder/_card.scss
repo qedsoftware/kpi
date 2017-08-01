@@ -4,7 +4,7 @@
 
 .card {
     border-radius: 0px;
-    font-family: $preferred_font;
+    font-family: $font;
     font-weight: 600;
     font-size: 13px;
     line-height: 18px;
@@ -25,7 +25,6 @@
         background: white;
         cursor: move;
         position: relative;
-
     }
 
     .bleeding-edge .card__header {
@@ -40,6 +39,7 @@
         vertical-align: middle;
         width: 99%;
         position: relative;
+
         &.activated {
             color: #8595A5;
         }
@@ -65,8 +65,48 @@
         cursor:text;
         // white-space: pre;
     }
+    .card__header-subtitle {
+        margin: 10px 0 0 0;
+        color: #aaa;
+        font-size: 12px;
+
+        &:before {
+            content: '+ ';
+            opacity: 0.5;
+        }
+    }
+    .card__header-subtitle-empty-value {
+        border: 1px solid #ffdbdb;
+        padding: 2px 3px;
+        border-radius: 3px;
+        background-color: #fff8f8;
+    }
+    .card__option-translation {
+        &--empty {
+            opacity: 0.6;
+        }
+    }
     &.card--shaded .card__header-title {
         opacity:0.3;
+    }
+
+    &--required {
+        .card__text:after {
+            content: '*';
+            position: absolute;
+            top: -0.15em;
+            left: -9px;
+            color: #bbb;
+            font-size: 11px;
+        }
+        &.card--selectquestion {
+            .card__text {
+                padding-left: 10px;
+                &:after {
+                    left: 1px;
+                }
+            }
+        }
     }
 }
 
@@ -88,7 +128,7 @@
     color:#8695A5;
     border:2px solid #8695A5;
     text-align: center;
-    font-family: $preferred_font;
+    font-family: $font;
     font-weight: 600;
     padding: 20px;
     margin:20px 0px;

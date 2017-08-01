@@ -2,6 +2,7 @@ global = @
 
 _ = require 'underscore'
 Backbone = require 'backbone'
+alertify = require 'alertifyjs'
 base = require './model.base'
 $configs = require './model.configs'
 $utils = require './model.utils'
@@ -398,6 +399,23 @@ module.exports = do ->
 
       return newRow
 
+    getTranslatedColumnKey: (col, whichone="primary")->
+      if whichone is "_2"
+        _t = @getSurvey()._translation_2
+      else
+        _t = @getSurvey()._translation_1
+      _key = "#{col}"
+      if _t isnt null
+        _key += "::#{_t}"
+      _key
+
+    getLabel: (whichone="primary")->
+      _col = @getTranslatedColumnKey("label", whichone)
+      if _col of @attributes
+        @getValue _col
+      else
+        null
+
     finalize: ->
       existing_name = @getValue("name")
       unless existing_name
@@ -441,6 +459,7 @@ module.exports = do ->
       @_error = options.error
       unless global.xlfHideWarnings
         console?.error("Error creating row: [#{options.error}]", obj)
+        alertify.error("Error creating row: [#{options.error}]");
       super(obj, options)
     isError: -> true
     getValue: (what)->

@@ -1,25 +1,59 @@
-import React from 'react/addons';
+import React from 'react';
+import autoBind from 'react-autobind';
+import ReactDOM from 'react-dom';
 import _ from 'underscore';
 import Chart from 'chart.js';
 import bem from '../bem';
 import $ from 'jquery';
 
-import {t} from '../utils';
+import {t, assign} from '../utils';
 
-var ReportTable = React.createClass({
+class ReportTable extends React.Component {
+  constructor(props) {
+    super(props);
+  }
   render () {
     let th = [''], rows = [];
-    if (this.props.type=='regular') {
+    if (this.props.type === 'numerical') {
+      th = [t('Mean'), t('Median'), t('Mode'), t('Standard deviation')];
+      return (
+        <table>
+          <thead>
+            <tr>
+              {th.map((t,i)=>{
+                return (<th key={i}>{t}</th>);
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{this.props.rows.mean || t('N/A')}</td>
+              <td>{this.props.rows.median || t('N/A')}</td>
+              <td>{this.props.rows.mode || t('N/A')}</td>
+              <td>{this.props.rows.stdev || t('N/A')}</td>
+            </tr>
+          </tbody>
+        </table>
+      );
+    }
+    if (this.props.type === 'regular') {
       th = [t('Value'), t('Frequency'), t('Percentage')];
       rows = this.props.rows;
     } else {
-      th = th.concat(this.props.rows[0][1].responses);
-      this.props.rows.map((row, i)=> {
-        var rowitem = [row[0]];
-        rowitem = rowitem.concat(row[1].percentages);
-        rows.push(rowitem);
-      });
+      if (this.props.rows.length > 0) {
+        th = th.concat(this.props.rows[0][1].responses);
+        this.props.rows.map((row, i)=> {
+          var rowitem = [row[0]];
+          rowitem = rowitem.concat(row[1].percentages);
+          rows.push(rowitem);
+        });
+      }
     }
+
+    if (rows.length === 0) {
+      return false;
+    }
+
     return (
         <table>
           <thead>
@@ -42,35 +76,42 @@ var ReportTable = React.createClass({
           </tbody>
         </table>
       )
-  },
-});
+  }
+};
 
-var ReportViewItem = React.createClass({
-  getInitialState () {
-    let s = this.props,
-      d = s.data;
-      s.reportTable = [];
+class ReportViewItem extends React.Component {
+  constructor(props) {
+    super(props);
+    var d = this.props.data, reportTable = [];
     if (d.percentages && d.responses && d.frequencies) {
-      s.reportTable = _.zip(
+      reportTable = _.zip(
           d.responses,
           d.frequencies,
           d.percentages,
         );
     }
 
-    return s;
-  },
+    if (d.mean)
+      reportTable = false;
+
+    this.state = {
+      ...this.props,
+      reportTable: reportTable
+    };
+    autoBind(this);
+  }
   componentDidMount () {
     if (!this.refs.canvas) {
       return;
     }
     if (this.state.data.show_graph) {
       var opts = this.buildChartOptions();
-      var canvas = this.refs.canvas.getDOMNode();
+
+      var canvas = ReactDOM.findDOMNode(this.refs.canvas);
       var itemChart = new Chart(canvas, opts);
       this.setState({itemChart: itemChart});
     }
-  },
+  }
   componentWillUpdate (newProps) {
     if (this.state.style != newProps.style) {
       this.setState({style: newProps.style});
@@ -79,7 +120,7 @@ var ReportViewItem = React.createClass({
       this.setState({data: newProps.data});
     }
     if (this.state.data.show_graph) {
-      var canvas = this.refs.canvas.getDOMNode();
+      var canvas = ReactDOM.findDOMNode(this.refs.canvas);
       var opts = this.buildChartOptions();
       let itemChart = this.state.itemChart;
       if (itemChart !== undefined) {
@@ -87,7 +128,7 @@ var ReportViewItem = React.createClass({
         itemChart = new Chart(canvas, opts);
       }
     }
-  },
+  }
   buildChartOptions () {
     var data = this.state.data;
     var chartType = this.state.style.report_type || 'bar';
@@ -107,17 +148,21 @@ var ReportViewItem = React.createClass({
     Chart.defaults.global.elements.arc.backgroundColor = baseColor;
     Chart.defaults.global.maintainAspectRatio = false;
 
-    if (chartType == 'donut')
+    if (chartType === 'donut') {
       chartType = 'pie';
+    }
 
-    if (chartType == 'area')
+    if (chartType === 'area') {
       chartType = 'line';
+    }
 
-    if (chartType == 'horizontal')
+    if (chartType === 'horizontal') {
       chartType = 'horizontalBar';
+    }
 
-    if (chartType == 'vertical' || chartType == 'bar_chart')
+    if (chartType === 'vertical' || chartType === 'bar_chart') {
       chartType = 'bar';
+    }
 
     var datasets = [];
     if (data.values != undefined) {
@@ -187,22 +232,23 @@ var ReportViewItem = React.createClass({
       }
     };
 
-    if (chartType == 'pie') {
+    if (chartType === 'pie') {
       opts.options.legend.display = true;
       opts.data.datasets[0].backgroundColor = colors;
-      opts.options.scales = false;
+      opts.options.scales.xAxes = [];
+      opts.options.scales.yAxes = [];
 
-      if (this.state.style.report_type == 'donut') {
+      if (this.state.style.report_type === 'donut') {
         opts.options.cutoutPercentage = 50;
       }
     }
 
-    if (this.state.style.report_type == 'area') {
+    if (this.state.style.report_type === 'area') {
       opts.data.datasets[0].backgroundColor = colors[0];
     }
 
     return opts;
-  },
+  }
   buildChartColors () {
     var colors = this.state.style.report_colors || [
       'rgba(52, 106, 200, 0.8)',
@@ -228,7 +274,7 @@ var ReportViewItem = React.createClass({
     colors = colors.concat(c2);
 
     return colors;
-  },
+  }
   render () {
     let p = this.state,
       d = p.data,
@@ -244,11 +290,15 @@ var ReportViewItem = React.createClass({
     }
     _type = JSON.stringify(_type);
 
+    var questionLabel = r.label;
+    if (this.props.translations) {
+      questionLabel = r.label[this.props.translationIndex];
+    }
     return (
       <div>
         <bem.ReportView__itemHeading>
           <h2>
-            {r.label}
+            {questionLabel}
           </h2>
           <bem.ReportView__headingMeta>
             <span className="type">
@@ -273,19 +323,23 @@ var ReportViewItem = React.createClass({
         <bem.ReportView__itemContent>
           {d.show_graph && 
             <bem.ReportView__chart
-                style={{width: this.state.style.graphWidth}}>
+                style={{width: this.state.style.graphWidth + 'px'}}>
               <canvas ref="canvas" />
             </bem.ReportView__chart>
           }
-          {d.values ? 
+          {d.values &&
             <ReportTable rows={d.values} type='disaggregated' />
-            : 
+          }
+          {p.reportTable &&
             <ReportTable rows={p.reportTable} type='regular'/>
+          }
+          {d.mean &&
+            <ReportTable rows={d} type='numerical'/>
           }
         </bem.ReportView__itemContent>
       </div>
       );
-  },
-});
+  }
+};
 
 export default ReportViewItem;

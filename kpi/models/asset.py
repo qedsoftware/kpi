@@ -5,6 +5,7 @@
 import re
 import copy
 import json
+import logging
 import StringIO
 from collections import OrderedDict
 
@@ -15,6 +16,7 @@ from django.core.exceptions import MultipleObjectsReturned
 from django.db import models
 from django.db import transaction
 from django.dispatch import receiver
+from django.utils.translation import ugettext_lazy as _
 import jsonbfield.fields
 from jsonfield import JSONField
 from jsonbfield.fields import JSONField as JSONBField
@@ -38,6 +40,16 @@ from ..utils.kobo_to_xlsform import (to_xlsform_structure,
                                      expand_rank_and_score_in_place,
                                      replace_with_autofields,
                                      remove_empty_expressions_in_place)
+from ..utils.asset_translation_utils import (
+        compare_translations,
+        # TRANSLATIONS_EQUAL,
+        TRANSLATIONS_OUT_OF_ORDER,
+        TRANSLATION_RENAMED,
+        TRANSLATION_DELETED,
+        TRANSLATION_ADDED,
+        TRANSLATION_CHANGE_UNSUPPORTED,
+        TRANSLATIONS_MULTIPLE_CHANGES,
+    )
 from ..utils.random_id import random_id
 from ..deployment_backends.mixin import DeployableMixin
 from kobo.apps.reports.constants import (SPECIFIC_REPORTS_KEY,
@@ -202,9 +214,17 @@ class FormpackXLSFormUtils(object):
             if '$kuid' in row:
                 del row['$kuid']
 
-
     def _remove_empty_expressions(self, content):
         remove_empty_expressions_in_place(content)
+
+    def _adjust_active_translation(self, content):
+        # to get around the form builder's way of handling translations where
+        # the interface focuses on the "null translation" and shows other ones
+        # in advanced settings, we allow the builder to attach a parameter
+        # which says what to name the null translation.
+        _null_translation_as = content.pop('#active_translation_name', None)
+        if _null_translation_as:
+            self._rename_translation(content, None, _null_translation_as)
 
     def _strip_empty_rows(self, content, vals=None):
         if vals is None:
@@ -235,8 +255,89 @@ class FormpackXLSFormUtils(object):
     def _has_translations(self, content, min_count=1):
         return len(content.get('translations', [])) >= min_count
 
+    def update_translation_list(self, translation_list):
+        existing_ts = self.content.get('translations', [])
+        params = compare_translations(existing_ts,
+                                      translation_list)
+        if None in translation_list and translation_list[0] is not None:
+            raise ValueError('Unnamed translation must be first in '
+                             'list of translations')
+        if TRANSLATIONS_OUT_OF_ORDER in params:
+            self._reorder_translations(self.content, translation_list)
+        elif TRANSLATION_RENAMED in params:
+            _change = params[TRANSLATION_RENAMED]['changes'][0]
+            self._rename_translation(self.content, _change['from'],
+                                     _change['to'])
+        elif TRANSLATION_ADDED in params:
+            if None in existing_ts:
+                raise ValueError('cannot add translation if an unnamed translation exists')
+            self._prepend_translation(self.content, params[TRANSLATION_ADDED])
+        elif TRANSLATION_DELETED in params:
+            if params[TRANSLATION_DELETED] != existing_ts[-1]:
+                raise ValueError('you can only delete the last translation of the asset')
+            self._remove_last_translation(self.content)
+        else:
+            for chg in [
+                        TRANSLATIONS_MULTIPLE_CHANGES,
+                        TRANSLATION_CHANGE_UNSUPPORTED,
+                        ]:
+                if chg in params:
+                    raise ValueError(
+                        'Unsupported change: "{}": {}'.format(
+                            chg,
+                            params[chg]
+                            )
+                    )
+
+    def _prioritize_translation(self, content, translation_name, is_new=False):
+        _translations = content.get('translations')
+        _translated = content.get('translated', [])
+        if is_new and (translation_name in _translations):
+            raise ValueError('cannot add existing translation')
+        elif (not is_new) and (translation_name not in _translations):
+            raise ValueError('translation cannot be found')
+        _tindex = -1 if is_new else _translations.index(translation_name)
+        if is_new or (_tindex > 0):
+            for row in content.get('survey', []):
+                for col in _translated:
+                    if is_new:
+                        val = '{}'.format(row[col][0])
+                    else:
+                        val = row[col].pop(_tindex)
+                    row[col].insert(0, val)
+            for row in content.get('choices', []):
+                for col in _translated:
+                    if is_new:
+                        val = '{}'.format(row[col][0])
+                    else:
+                        val = row[col].pop(_tindex)
+                    row[col].insert(0, val)
+            if is_new:
+                _translations.insert(0, translation_name)
+            else:
+                _translations.insert(0, _translations.pop(_tindex))
+
+    def _remove_last_translation(self, content):
+        content.get('translations').pop()
+        _translated = content.get('translated', [])
+        for row in content.get('survey', []):
+            for col in _translated:
+                row[col].pop()
+        for row in content.get('choices', []):
+            for col in _translated:
+                row[col].pop()
+
+    def _prepend_translation(self, content, translation_name):
+        self._prioritize_translation(content, translation_name, is_new=True)
+
+    def _reorder_translations(self, content, translations):
+        _ts = translations[:]
+        _ts.reverse()
+        for _tname in _ts:
+            self._prioritize_translation(content, _tname)
+
     def _rename_translation(self, content, _from, _to):
-        _ts = self.content.get('translations')
+        _ts = content.get('translations')
         if _to in _ts:
             raise ValueError('Duplicate translation: {}'.format(_to))
         _ts[_ts.index(_from)] = _to
@@ -355,20 +456,57 @@ class Asset(ObjectPermissionMixin,
         permissions = (
             # change_, add_, and delete_asset are provided automatically
             # by Django
-            ('view_asset', 'Can view asset'),
-            ('share_asset', "Can change this asset's sharing settings"),
+            ('view_asset', _('Can view asset')),
+            ('share_asset', _("Can change asset's sharing settings")),
+            # Permissions for collected data, i.e. submissions
+            ('add_submissions', _('Can submit data to asset')),
+            ('view_submissions', _('Can view submitted data for asset')),
+            ('change_submissions', _('Can modify submitted data for asset')),
+            ('delete_submissions', _('Can delete submitted data for asset')),
+            ('share_submissions', _("Can change sharing settings for "
+                                    "asset's submitted data")),
+            # TEMPORARY Issue #1161: A flag to indicate that permissions came
+            # solely from `sync_kobocat_xforms` and not from any user
+            # interaction with KPI
+            ('from_kc_only', 'INTERNAL USE ONLY; DO NOT ASSIGN')
         )
 
     # Assignable permissions that are stored in the database
-    ASSIGNABLE_PERMISSIONS = ('view_asset', 'change_asset')
+    ASSIGNABLE_PERMISSIONS = (
+        'view_asset',
+        'change_asset',
+        'add_submissions',
+        'view_submissions',
+        'change_submissions'
+    )
     # Calculated permissions that are neither directly assignable nor stored
     # in the database, but instead implied by assignable permissions
-    CALCULATED_PERMISSIONS = ('share_asset', 'delete_asset')
+    CALCULATED_PERMISSIONS = (
+        'share_asset',
+        'delete_asset',
+        'share_submissions',
+        'delete_submissions'
+    )
     # Certain Collection permissions carry over to Asset
     MAPPED_PARENT_PERMISSIONS = {
         'view_collection': 'view_asset',
         'change_collection': 'change_asset'
     }
+    # Granting some permissions implies also granting other permissions
+    IMPLIED_PERMISSIONS = {
+        # Format: explicit: (implied, implied, ...)
+        'change_asset': ('view_asset',),
+        'add_submissions': ('view_asset',),
+        'view_submissions': ('view_asset',),
+        'change_submissions': ('view_submissions',)
+    }
+    # Some permissions must be copied to KC
+    KC_PERMISSIONS_MAP = { # keys are KC's codenames, values are KPI's
+        'change_submissions': 'change_xform', # "Can Edit" in KC UI
+        'view_submissions': 'view_xform', # "Can View" in KC UI
+        'add_submissions': 'report_xform', # "Can submit to" in KC UI
+    }
+    KC_CONTENT_TYPE_KWARGS = {'app_label': 'logger', 'model': 'xform'}
 
     # todo: test and implement this method
     # def restore_version(self, uid):
@@ -394,14 +532,8 @@ class Asset(ObjectPermissionMixin,
         asset.save(adjust_content=False)
         '''
         self._standardize(self.content)
-        # to get around the form builder's way of handling translations where
-        # the interface focuses on the "null translation" and shows other ones
-        # in advanced settings, we allow the builder to attach a parameter
-        # which says what to name the null translation.
-        _null_translation_as = self.content.pop('#null_translation', None)
-        if _null_translation_as:
-            self._rename_translation(self.content, None, _null_translation_as)
 
+        self._adjust_active_translation(self.content)
         self._strip_empty_rows(self.content)
         self._assign_kuids(self.content)
         self._autoname(self.content)
@@ -480,7 +612,12 @@ class Asset(ObjectPermissionMixin,
 
     def clone(self, version_uid=None):
         # not currently used, but this is how "to_clone_dict" should work
-        Asset.objects.create(**self.to_clone_dict(version_uid))
+        return Asset.objects.create(**self.to_clone_dict(version_uid))
+
+    def revert_to_version(self, version_uid):
+        av = self.asset_versions.get(uid=version_uid)
+        self.content = av.version_content
+        self.save()
 
     def _populate_report_styles(self):
         default = self.report_styles.get(DEFAULT_REPORTS_KEY, {})
@@ -612,6 +749,7 @@ class AssetSnapshot(models.Model, XlsExportable, FormpackXLSFormUtils):
         if _source is None:
             _source = {}
         self._standardize(_source)
+        self._adjust_active_translation(_source)
         self._strip_empty_rows(_source)
         self._autoname(_source)
         self._remove_empty_expressions(_source)
@@ -665,11 +803,19 @@ class AssetSnapshot(models.Model, XlsExportable, FormpackXLSFormUtils):
                 u'warnings': warnings,
             })
         except Exception as err:
+            err_message = unicode(err)
+            logging.error('Failed to generate xform for asset', extra={
+                'src': source,
+                'id_string': id_string,
+                'uid': self.uid,
+                '_msg': err_message,
+                'warnings': warnings,
+            })
             xml = ''
             details.update({
                 u'status': u'failure',
                 u'error_type': type(err).__name__,
-                u'error': unicode(err),
+                u'error': err_message,
                 u'warnings': warnings,
             })
         return (xml, details)
