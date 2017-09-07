@@ -16,7 +16,7 @@ import {
   surveyToValidJson,
   notify,
   assign,
-  t,
+  t
 } from '../utils';
 
 import {
@@ -52,6 +52,9 @@ class FormSettingsEditor extends React.Component {
           <div className="mdl-grid">
             <div className="mdl-cell mdl-cell--4-col">
               {this.props.meta.map((mtype) => {
+                if (!mtype.key) {
+                  mtype.key = `meta-${mtype.name}`;
+                }
                 return (
                     <FormCheckbox htmlFor={mtype} onChange={this.props.onCheckboxChange} {...mtype} />
                   );
@@ -59,6 +62,9 @@ class FormSettingsEditor extends React.Component {
             </div>
             <div className="mdl-cell mdl-cell--4-col">
               {this.props.phoneMeta.map((mtype) => {
+                if (!mtype.key) {
+                  mtype.key = `meta-${mtype.name}`;
+                }
                 return (
                     <FormCheckbox htmlFor={mtype} onChange={this.props.onCheckboxChange} {...mtype} />
                   );
@@ -153,7 +159,7 @@ class FormSettingsBox extends React.Component {
     });
   }
   render () {
-    var metaData = [].concat(this.state.meta).concat(this.state.phoneMeta).filter(function(item){
+    var metaData = [...this.state.meta, ...this.state.phoneMeta].filter(function(item){
       return item.value;
     }).map(function(item){
       return item.label;
@@ -385,7 +391,7 @@ export default assign({
         return hasSelect;
       })(); // todo: only true if survey has select questions
       ooo.name = this.state.name;
-      ooo.hasSettings = this.constructor.name === 'FormPage';
+      ooo.hasSettings = this.state.backRoute === '/forms';
       ooo.styleValue = this.state.settings__style;
     }
     if (this.state.editorState === 'new') {
@@ -607,11 +613,20 @@ export default assign({
       _state.savedName = _state.name;
     }
 
+      let isEmptySurvey = (
+          survey &&
+          Object.keys(survey.settings).length === 0 &&
+          survey.survey.length === 0
+        );
+
     try {
       if (!survey) {
         survey = dkobo_xlform.model.Survey.create();
       } else {
         survey = dkobo_xlform.model.Survey.loadDict(survey);
+        if (isEmptySurvey) {
+          survey.surveyDetails.importDefaults();
+        }
       }
     } catch (err) {
       _state.surveyLoadError = err.message;
@@ -652,15 +667,24 @@ export default assign({
     if (!this.needsSave()) {
       hashHistory.push(backRoute);
     } else {
-      customConfirmAsync(t('you have unsaved changes. leave form without saving?'))
-        .done(() => {
+      let dialog = alertify.dialog('confirm');
+      let opts = {
+        title: t('you have unsaved changes. leave form without saving?'),
+        message: '',
+        labels: {ok: t('Yes, leave form'), cancel: t('Cancel')},
+        onok: (evt, val) => {
           hashHistory.push(backRoute);
-        });
+        },
+        oncancel: () => {
+          dialog.destroy();
+        }
+      };
+      dialog.set(opts).show();
     }
   },
 
   render () {
-    var isSurvey = this.app && this.constructor.name === 'FormPage';
+    var isSurvey = this.app && this.state.backRoute === '/forms';
     var docTitle = this.state.name || t('Untitled');
     return (
         <DocumentTitle title={`${docTitle} | KoboToolbox`}>
