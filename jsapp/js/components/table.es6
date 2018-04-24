@@ -14,6 +14,7 @@ import mixins from '../mixins';
 import alertify from 'alertifyjs';
 
 import ReactTable from 'react-table'
+import createTable from 'react-table-hoc-fixed-columns';
 import Select from 'react-select';
 import {DebounceInput} from 'react-debounce-input';
 
@@ -28,6 +29,8 @@ import {
   notify,
   formatTimeDate
 } from '../utils';
+
+const ReactTableFixedColumns = createTable(ReactTable);
 
 export class DataTable extends React.Component {
   constructor(props){
@@ -151,6 +154,8 @@ export class DataTable extends React.Component {
         minWidth: 45,
         filterable: false,
         sortable: false,
+        fixed: true,
+        width: 50,
         Cell: row => (
           <div>
             <input type="checkbox"
@@ -170,6 +175,8 @@ export class DataTable extends React.Component {
       minWidth: 50,
       filterable: false,
       sortable: false,
+      fixed: true,
+      width: 50,
       Cell: row => (
         <span onClick={this.launchSubmissionModal} data-sid={row.row._id}
               className='rt-link'>
@@ -669,7 +676,7 @@ export class DataTable extends React.Component {
           </bem.FormView__item>
         </bem.FormView__group>
 
-        <ReactTable
+        <ReactTableFixedColumns
           data={tableData}
           columns={columns}
           defaultPageSize={defaultPageSize}
