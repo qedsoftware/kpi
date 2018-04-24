@@ -15,7 +15,6 @@ import $ from 'jquery';
 
 import {
   getAnonymousUserPermission,
-  parsePermissions,
   anonUsername,
   formatTime,
   currentLang,
@@ -23,15 +22,14 @@ import {
   t,
   assign,
   notify,
-  isLibrary,
   stringToColor
 } from './utils';
 
 import icons from '../xlform/src/view.icons';
-  
+
 var mixins = {};
 
-var dmix = {
+mixins.dmix = {
   afterCopy() {
     notify(t('copied to clipboard'));
   },
@@ -72,9 +70,11 @@ var dmix = {
     let dialog = alertify.dialog('confirm');
     let opts = {
       title: t('Overwrite existing deployment'),
-      message: t('This form has already been deployed. Are you sure you ' +
-                 'want overwrite the existing deployment? ' +
-                 '<br/><br/><strong>This action cannot be undone.</strong>'),
+      message: t(
+        'This form has already been deployed. Are you sure you ' +
+        'want overwrite the existing deployment? ' +
+        '<br/><br/><strong>This action cannot be undone.</strong>'
+      ),
       labels: {ok: t('Ok'), cancel: t('Cancel')},
       onok: (evt, val) => {
         let ok_button = dialog.elements.buttons.primary.firstChild;
@@ -120,6 +120,9 @@ var dmix = {
       this.reDeployConfirm(asset, onComplete);
     }
   },
+  unarchiveAsset () {
+    mixins.clickAssets.click.asset.unarchive.call(this, this.state);
+  },
   toggleDeploymentHistory () {
     this.setState({
       historyExpanded: !this.state.historyExpanded,
@@ -147,58 +150,16 @@ var dmix = {
         </pre>
       );
   },
-  isOwner() {
-    if (!this.state.owner__username || !this.state.currentUsername) {
-      return false;
-    }
-    return this.state.currentUsername === this.state.owner__username;
-  },
-  getCurrentUserPermissions ({access}, {currentUsername}) {
-    var ownerUsername = access && access.ownerUsername;
-    var isOwner = currentUsername === ownerUsername;
-    var canEdit;
-    var canView;
-    canEdit = isOwner || access && access.change[currentUsername];
-    canView = isOwner || access && access.view[currentUsername];
-    return {
-      userCanEdit: !!canEdit,
-      userCanView: !!canView,
-      isOwner: isOwner
-    };
-  },
-  dmixSessionStoreChange (val) {
-    if (val && val.currentAccount) {
-      var currentUsername = val && val.currentAccount && val.currentAccount.username;
-      this.setState(assign({
-          currentUsername: currentUsername
-        },
-        this.getCurrentUserPermissions(this.state, {currentUsername: currentUsername})
-      ));
-    }
-  },
   dmixAssetStoreChange (data) {
     var uid = this.props.params.assetid || this.props.uid || this.props.params.uid,
       asset = data[uid];
     if (asset) {
-      this.setState(assign({},
-          data[uid],
-          this.getCurrentUserPermissions(data[uid], this.state)
-        ));
+      this.setState(assign({}, data[uid]));
     }
   },
-  componentWillMount () {
-    this.setState({
-      userCanEdit: false,
-      userCanView: true,
-      historyExpanded: false,
-      showReportGraphSettings: false,
-      currentUsername: stores.session.currentAccount && stores.session.currentAccount.username,
-    });
-  },
   componentDidMount () {
-    this.listenTo(stores.session, this.dmixSessionStoreChange);
     this.listenTo(stores.asset, this.dmixAssetStoreChange);
- 
+
     var uid = this.props.params.assetid || this.props.uid || this.props.params.uid;
     if (this.props.randdelay && uid) {
       window.setTimeout(()=>{
@@ -210,8 +171,6 @@ var dmix = {
   }
 };
 
-mixins.dmix = dmix;
- 
 mixins.droppable = {
   _forEachDroppedFile (evt, file, params={}) {
     var library = this.context.router.isActive('library');
@@ -240,7 +199,7 @@ mixins.droppable = {
             var assetData = importData.messages.updated || importData.messages.created;
             var assetUid = assetData && assetData.length > 0 && assetData[0].uid,
                 isCurrentPage = this.state.uid === assetUid;
- 
+
             if (!assetUid) {
               alertify.error(t('Could not redirect to asset.'));
             } else {
@@ -296,8 +255,8 @@ mixins.droppable = {
       alertify.error(errMsg);
     });
   }
-}; 
- 
+};
+
 mixins.collectionList = {
   getInitialState () {
     // initial state is a copy of "stores.collections.initialState"
@@ -313,7 +272,7 @@ mixins.collectionList = {
     this.setState(collections);
   },
 };
- 
+
 mixins.clickAssets = {
   onActionButtonClick (action, uid, name) {
     this.click.asset[action].call(this, uid, name);
@@ -421,7 +380,7 @@ mixins.clickAssets = {
       },
       deploy: function(uid){
         let asset = stores.selectedAsset.asset;
-        dmix.deployAsset(asset);
+        mixins.dmix.deployAsset(asset);
       },
       archive: function(uid) {
         let asset = stores.selectedAsset.asset;
@@ -429,7 +388,7 @@ mixins.clickAssets = {
         let opts = {
           title: t('Archive Project'),
           message: `${t('Are you sure you want to archive this project?')} <br/><br/>
-                     <strong>${t('Your form will not accept submissions while it is archived.')}</strong>`,
+            <strong>${t('Your form will not accept submissions while it is archived.')}</strong>`,
           labels: {ok: t('Archive'), cancel: t('Cancel')},
           onok: (evt, val) => {
             actions.resources.setDeploymentActive(
@@ -448,11 +407,36 @@ mixins.clickAssets = {
           }
         };
         dialog.set(opts).show();
-
+      },
+      unarchive: function(assetOrUid) {
+        let asset = (typeof assetOrUid == 'object') ? assetOrUid : stores.selectedAsset.asset;
+        let dialog = alertify.dialog('confirm');
+        let opts = {
+          title: t('Unarchive Project'),
+          message: `${t('Are you sure you want to unarchive this project?')}`,
+          labels: {ok: t('Unarchive'), cancel: t('Cancel')},
+          onok: (evt, val) => {
+            actions.resources.setDeploymentActive(
+              {
+                asset: asset,
+                active: true
+              },
+              {onComplete: ()=> {
+                actions.resources.loadAsset({id: asset.uid});
+                this.refreshSearch && this.refreshSearch();
+                notify(t('unarchived project'));
+              }}
+            );
+          },
+          oncancel: () => {
+            dialog.destroy();
+          }
+        };
+        dialog.set(opts).show();
       },
       sharing: function(uid){
         stores.pageState.showModal({
-          type: 'sharing', 
+          type: 'sharing',
           assetid: uid
         });
       },
@@ -491,6 +475,24 @@ mixins.permissions = {
       objectUrl: props.objectUrl,
       role: permName
     });
+  },
+  userCan (permName, asset) {
+    if (!asset.permissions)
+      return false;
+
+    if (!stores.session.currentAccount)
+      return false;
+
+    const currentUsername = stores.session.currentAccount.username;
+    if (asset.owner__username === currentUsername)
+      return true
+
+    // TODO: should super user always have access to all UI?
+    // if (stores.session.currentAccount.is_superuser)
+    //   return true;
+
+    const userPerms = asset.permissions.filter(perm => perm.user__username === currentUsername);
+    return userPerms.some(p => p.permission === permName);
   }
 };
 
@@ -512,8 +514,8 @@ mixins.contextRouter = {
   },
   isFormBuilder () {
     if (this.context.router.isActive(`/library/new`))
-      return true; 
-    
+      return true;
+
     if (this.context.router.params.assetid == undefined)
       return false
 

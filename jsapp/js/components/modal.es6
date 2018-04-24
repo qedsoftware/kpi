@@ -17,12 +17,12 @@ import {
 
 import {ProjectSettings} from '../components/formEditors';
 import SharingForm from '../components/sharingForm';
+import Submission from '../components/submission';
 
 class Modal extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      type: false,
       enketopreviewlink: false,
       error: false,
       modalClass: false
@@ -30,7 +30,7 @@ class Modal extends React.Component {
     autoBind(this);
   }
   componentDidMount () {
-  	var type = this.props.params.type;
+    var type = this.props.params.type;
     switch(type) {
       case 'sharing':
         this.setState({
@@ -64,7 +64,14 @@ class Modal extends React.Component {
           modalClass: 'modal-large'
         });
         break;
-		}  	
+      case 'submission':
+        this.setState({
+          title: t('Submission Record'),
+          modalClass: 'modal-large modal-submission',
+          sid: this.props.params.sid
+        });
+      break;
+    }
   }
   createNewForm (settingsComponent) {
     dataInterface.createResource({
@@ -83,7 +90,6 @@ class Modal extends React.Component {
   }
   enketoSnapshotCreation (data) {
     if (data.success) {
-      // var uid = this.props.params.assetid;
       this.setState({
         enketopreviewlink: data.enketopreviewlink
       });
@@ -95,54 +101,64 @@ class Modal extends React.Component {
     }
   }
 
+  componentWillReceiveProps(nextProps) {
+    if (nextProps.params && nextProps.params.sid) {
+      this.setState({
+        title: t('Submission Record'),
+        sid: nextProps.params.sid
+      });
+    }
+  }
   render() {
-  	return (
-	      <ui.Modal open onClose={()=>{stores.pageState.hideModal()}} title={this.state.title} className={this.state.modalClass}>
-	        <ui.Modal.Body>
-	        	{ this.props.params.type == 'sharing' &&
-	          	<SharingForm uid={this.props.params.assetid} />
-	        	}
-            { this.props.params.type == 'new-form' &&
-              <ProjectSettings
-                onSubmit={this.createNewForm}
-                submitButtonValue={t('Create project')}
-                context='newForm'
-              />
-            }
-            { this.props.params.type == 'enketo-preview' && this.state.enketopreviewlink &&
-              <div className='enketo-holder'>
-                <iframe src={this.state.enketopreviewlink} />
-              </div>
-            }
-            { this.props.params.type == 'enketo-preview' && !this.state.enketopreviewlink &&
+    return (
+      <ui.Modal open onClose={()=>{stores.pageState.hideModal()}} title={this.state.title} className={this.state.modalClass}>
+        <ui.Modal.Body>
+          { this.props.params.type == 'sharing' &&
+            <SharingForm uid={this.props.params.assetid} />
+          }
+          { this.props.params.type == 'new-form' &&
+            <ProjectSettings
+              onSubmit={this.createNewForm}
+              submitButtonValue={t('Create project')}
+              context='newForm'
+            />
+          }
+          { this.props.params.type == 'enketo-preview' && this.state.enketopreviewlink &&
+            <div className='enketo-holder'>
+              <iframe src={this.state.enketopreviewlink} />
+            </div>
+          }
+          { this.props.params.type == 'enketo-preview' && !this.state.enketopreviewlink &&
+            <bem.Loading>
+              <bem.Loading__inner>
+                <i />
+                {t('loading...')}
+              </bem.Loading__inner>
+            </bem.Loading>
+          }
+          { this.props.params.type == 'enketo-preview' && this.state.error &&
+            <div>
+              {this.state.message}
+            </div>
+          }
+          { this.props.params.type == 'uploading-xls' &&
+            <div>
               <bem.Loading>
                 <bem.Loading__inner>
                   <i />
-                  {t('loading...')}
+                  <bem.Loading__msg>{this.state.message}</bem.Loading__msg>
                 </bem.Loading__inner>
               </bem.Loading>
-            }
-            { this.props.params.type == 'enketo-preview' && this.state.error && 
-              <div>
-                {this.state.message}
-              </div>
-            }
-            { this.props.params.type == 'uploading-xls' && 
-              <div>
-                <bem.Loading>
-                  <bem.Loading__inner>
-                    <i />
-                    <bem.Loading__msg>{this.state.message}</bem.Loading__msg>
-                  </bem.Loading__inner>
-                </bem.Loading>
+            </div>
+          }
 
+          { this.props.params.type == 'submission' && this.state.sid &&
+            <Submission sid={this.state.sid} asset={this.props.params.asset} ids={this.props.params.ids} />
+          }
 
-              </div>
-            }
-
-	        </ui.Modal.Body>
-	      </ui.Modal>
-  		)
+        </ui.Modal.Body>
+      </ui.Modal>
+    )
   }
 
 };

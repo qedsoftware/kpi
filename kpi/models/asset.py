@@ -33,7 +33,7 @@ from kpi.utils.standardize_content import (standardize_content,
 from kpi.utils.autoname import (autoname_fields_in_place,
                                 autovalue_choices_in_place)
 from .object_permission import ObjectPermission, ObjectPermissionMixin
-from ..fields import KpiUidField
+from ..fields import KpiUidField, LazyDefaultJSONBField
 from ..utils.asset_content_analyzer import AssetContentAnalyzer
 from ..utils.sluggify import sluggify_label
 from ..utils.kobo_to_xlsform import (to_xlsform_structure,
@@ -344,14 +344,6 @@ class FormpackXLSFormUtils(object):
 
 
 class XlsExportable(object):
-    def flattened_content_copy(self):
-        _c = self.standardized_content_copy()
-        flatten_content(_c, in_place=True)
-        return to_xlsform_structure(_c, move_autonames=True)
-
-    def valid_xlsform_content(self):
-        return self.flattened_content_copy()
-
     def ordered_xlsform_content(self,
                                 kobo_specific_types=False,
                                 append=None):
@@ -371,19 +363,21 @@ class XlsExportable(object):
 
     def to_xls_io(self, versioned=False, **kwargs):
         ''' To append rows to one or more sheets, pass `append` as a
-        dictionary of dictionaries in the following format:
+        dictionary of lists of dictionaries in the following format:
             `{'sheet name': [{'column name': 'cell value'}]}`
         Extra settings may be included as a dictionary in the same
         parameter.
             `{'settings': {'setting name': 'setting value'}}` '''
         if versioned:
-            kwargs['append'
-                   ] = {'survey': [
-                        {'name': '__version__',
-                         'calculation': '\'{}\''.format(self.version_id),
-                         'type': 'calculate'}
-                        ],
-                        'settings': {'version': self.version_id}}
+            append = kwargs['append'] = kwargs.get('append', {})
+            append_survey = append['survey'] = append.get('survey', [])
+            append_settings = append['settings'] = append.get('settings', {})
+            append_survey.append(
+                {'name': '__version__',
+                 'calculation': '\'{}\''.format(self.version_id),
+                 'type': 'calculate'}
+            )
+            append_settings.update({'version': self.version_id})
         try:
             def _add_contents_to_sheet(sheet, contents):
                 cols = []
@@ -428,6 +422,9 @@ class Asset(ObjectPermissionMixin,
     content = JSONField(null=True)
     summary = JSONField(null=True, default=dict)
     report_styles = JSONBField(default=dict)
+    report_custom = JSONBField(default=dict)
+    map_styles = LazyDefaultJSONBField(default=dict)
+    map_custom = LazyDefaultJSONBField(default=dict)
     asset_type = models.CharField(
         choices=ASSET_TYPES, max_length=20, default='survey')
     parent = models.ForeignKey(
@@ -465,6 +462,7 @@ class Asset(ObjectPermissionMixin,
             ('delete_submissions', _('Can delete submitted data for asset')),
             ('share_submissions', _("Can change sharing settings for "
                                     "asset's submitted data")),
+            ('validate_submissions', _("Can validate submitted data asset")),
             # TEMPORARY Issue #1161: A flag to indicate that permissions came
             # solely from `sync_kobocat_xforms` and not from any user
             # interaction with KPI
@@ -477,7 +475,8 @@ class Asset(ObjectPermissionMixin,
         'change_asset',
         'add_submissions',
         'view_submissions',
-        'change_submissions'
+        'change_submissions',
+        'validate_submissions',
     )
     # Calculated permissions that are neither directly assignable nor stored
     # in the database, but instead implied by assignable permissions
@@ -498,15 +497,21 @@ class Asset(ObjectPermissionMixin,
         'change_asset': ('view_asset',),
         'add_submissions': ('view_asset',),
         'view_submissions': ('view_asset',),
-        'change_submissions': ('view_submissions',)
+        'change_submissions': ('view_submissions',),
+        'validate_submissions': ('view_submissions',)
     }
     # Some permissions must be copied to KC
     KC_PERMISSIONS_MAP = { # keys are KC's codenames, values are KPI's
         'change_submissions': 'change_xform', # "Can Edit" in KC UI
         'view_submissions': 'view_xform', # "Can View" in KC UI
         'add_submissions': 'report_xform', # "Can submit to" in KC UI
+        'validate_submissions': 'validate_xform',  # "Can Validate" in KC UI
     }
     KC_CONTENT_TYPE_KWARGS = {'app_label': 'logger', 'model': 'xform'}
+    # KC records anonymous access as flags on the `XForm`
+    KC_ANONYMOUS_PERMISSIONS_XFORM_FLAGS = {
+        'view_submissions': {'shared': True, 'shared_data': True}
+    }
 
     # todo: test and implement this method
     # def restore_version(self, uid):

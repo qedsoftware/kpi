@@ -167,7 +167,7 @@ var dataInterface;
       // Do we already have these URLs stored somewhere?
       var objectUrl = creds.objectUrl || `${rootUrl}/${creds.kind}s/${creds.uid}/`;
       var userUrl = `${rootUrl}/users/${creds.username}/`;
-      var codename = `${creds.role}_${creds.kind}`;
+      var codename = creds.role.includes('_submissions') ? creds.role : `${creds.role}_${creds.kind}`;
       return $ajax({
         url: `${rootUrl}/permissions/`,
         method: 'POST',
@@ -263,6 +263,20 @@ var dataInterface;
       } else {
         return $.getJSON(`${rootUrl}/assets/${params.id}/`);
       }
+    },
+    getAssetExports (uid) {
+      return $ajax({
+        url: `${rootUrl}/exports/`,
+        data: {
+          q: `source:${uid}`
+        }
+      });
+    },
+    deleteAssetExport (euid) {
+      return $ajax({
+        url: `${rootUrl}/exports/${euid}/`,
+        method: 'DELETE'
+      });
     },
     getAssetXformView (uid) {
       return $ajax({
@@ -363,6 +377,60 @@ var dataInterface;
       // how can we avoid pulling asset type from the 1st character of the uid?
       var assetType = assetMapping[id[0]];
       return $.getJSON(`${rootUrl}/${assetType}/${id}/`);
+    },
+    getSubmissions(uid, pageSize=100, page=0, sort=[], fields=[], filter='', count=false) {
+      const query = `limit=${pageSize}&start=${page}`;
+      var s = `&sort={"_id":-1}`; // default sort
+      var f = '';
+      if (sort.length)
+        s = sort[0].desc === true ? `&sort={"${sort[0].id}":-1}` : `&sort={"${sort[0].id}":1}`;
+      if (fields.length)
+        f = `&fields=${JSON.stringify(fields)}`;
+      if (count)
+        filter += '&count=1';
+
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/submissions?${query}${s}${f}${filter}`,
+        method: 'GET'
+      });
+    },
+    getSubmission(uid, sid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/submissions/${sid}`,
+        method: 'GET'
+      });
+    },
+    patchSubmissions(uid, data) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/submissions/validation_statuses/`,
+        method: 'PATCH',
+        data: {'payload': JSON.stringify(data)}
+      });
+    },
+    updateSubmissionValidationStatus(uid, sid, data) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/submissions/${sid}/validation_status/`,
+        method: 'PATCH',
+        data: data
+      });
+    },
+    getSubmissionsQuery(uid, query='') {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/submissions?${query}`,
+        method: 'GET'
+      });
+    },
+    deleteSubmission(uid, sid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/submissions/${sid}`,
+        method: 'DELETE'
+      });
+    },
+    getEnketoEditLink(uid, sid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/submissions/${sid}/edit?return_url=false`,
+        method: 'GET'
+      });
     },
     login: (creds)=> {
       return $ajax({ url: `${rootUrl}/api-auth/login/?next=/me/`, data: creds, method: 'POST'});

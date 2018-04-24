@@ -12,17 +12,32 @@ import classNames from 'classnames';
 import Select from 'react-select';
 import bem from '../bem';
 import {
-  t, 
-  parsePermissions, 
-  getAnonymousUserPermission,
+  t,
+  parsePermissions,
   stringToColor,
   anonUsername
 } from '../utils';
+
+var availablePermissions = [
+  {value: 'view', label: t('View Form')},
+  {value: 'change', label: t('Edit Form')},
+  {value: 'view_submissions', label: t('View Submissions')},
+  {value: 'add_submissions', label: t('Add Submissions')},
+  {value: 'change_submissions', label: t('Edit Submissions')},
+  {value: 'validate_submissions', label: t('Validate Submissions')}
+];
 
 class UserPermDiv extends React.Component {
   constructor(props) {
     super(props);
     autoBind(this);
+  }
+  removePermissions() {
+    // removing view permission will include all other permissions
+    actions.permissions.removePerm({
+      permission_url: this.props.can.view.url,
+      content_object_uid: this.props.uid
+    });
   }
   PermOnChange(perm) {
     var cans = this.props.can;
@@ -44,22 +59,15 @@ class UserPermDiv extends React.Component {
       background: `#${stringToColor(this.props.username)}`
     };
 
-    var currentPerm = '';
-    var cans = this.props.can;
-
-    if (cans.change) {
-      var currentPerm = 'change';
-    } else if (cans.view) {
-      var currentPerm = 'view';
+    var cans = [];
+    for (var key in this.props.can) {
+      let perm = availablePermissions.find(function (d) {return d.value === key});
+      if (perm && perm.label)
+        cans.push(perm.label);
     }
 
-    var availablePermissions = [
-      {value: 'view', label: t('Can View')},
-      {value: 'change', label: t('Can Edit')}
-    ];
-
     return (
-      <bem.UserRow m={cans.view || cans.change ? 'regular' : 'deleted'}>
+      <bem.UserRow m={cans.length > 0 ? 'regular' : 'deleted'}>
         <bem.UserRow__avatar>
           <bem.AccountBox__initials style={initialsStyle}>
             {this.props.username.charAt(0)}
@@ -67,18 +75,14 @@ class UserPermDiv extends React.Component {
         </bem.UserRow__avatar>
         <bem.UserRow__name>
           {this.props.username}
-          {/*<div><UserProfileLink username= /></div>*/}
         </bem.UserRow__name>
-        <bem.UserRow__role>
-          <Select
-            name='userPerms'
-            value={currentPerm}
-            clearable={true}
-            options={availablePermissions}
-            onChange={this.PermOnChange}
-          />
+        <bem.UserRow__role title={cans.join(', ')}>
+          {cans.join(', ')}
         </bem.UserRow__role>
-      </bem.UserRow>      
+        <bem.UserRow__cancel onClick={this.removePermissions}>
+          <i className="k-icon k-icon-trash" />
+        </bem.UserRow__cancel>
+      </bem.UserRow>
       );
   }
 };
@@ -90,17 +94,24 @@ class PublicPermDiv extends React.Component {
     super(props);
     autoBind(this);
   }
-  togglePerms() {
-    if (this.props.publicPerm)
-      this.removePerm('view',this.props.publicPerm, this.props.uid);
-    else
-      this.setPerm('view', {
-          username: anonUsername,
-          uid: this.props.uid,
-          kind: this.props.kind,
-          objectUrl: this.props.objectUrl
-        }
-      );
+  togglePerms(evt) {
+    var permRole = evt.currentTarget.dataset.perm;
+    var permission = this.props.publicPerms.filter(function(perm){ return perm.permission === permRole })[0];
+
+    if (permission) {
+      actions.permissions.removePerm({
+        permission_url: permission.url,
+        content_object_uid: this.props.uid
+      });
+    } else {
+      actions.permissions.assignPerm({
+        username: anonUsername,
+        uid: this.props.uid,
+        kind: this.props.kind,
+        objectUrl: this.props.objectUrl,
+        role: permRole === 'view_asset' ? 'view' : permRole
+      });
+    }
   }
   render () {
     var uid = this.props.uid;
@@ -108,19 +119,35 @@ class PublicPermDiv extends React.Component {
     var href = `#/forms/${uid}`;
     var url = `${window.location.protocol}//${window.location.host}/${href}`;
 
+    var anonCanView = this.props.publicPerms.filter(function(perm){ return perm.permission === 'view_asset' })[0];
+    var anonCanViewData = this.props.publicPerms.filter(function(perm){ return perm.permission === 'view_submissions' })[0];
+
     return (
-      <bem.FormModal__item m='perms-link'>
-        <input  type="checkbox" 
-                checked={this.props.publicPerm ? true : false} 
-                onChange={this.togglePerms} 
-                id="share-by-link"/>
-        <label htmlFor="share-by-link">{t('Share by link')}</label>
-        { this.props.publicPerm && 
-          <bem.FormModal__item m='shareable-link'>
-            <label>
-              {t('Shareable link')}
-            </label>
-            <input type="text" value={url} readOnly />
+      <bem.FormModal__item m='permissions'>
+        <bem.FormModal__item m='perms-link'>
+          <input  type="checkbox"
+                  checked={anonCanView ? true : false}
+                  onChange={this.togglePerms}
+                  id="share-by-link"
+                  data-perm="view_asset"/>
+          <label htmlFor="share-by-link">{t('Share by link')}</label>
+          { anonCanView &&
+            <bem.FormModal__item m='shareable-link'>
+              <label>
+                {t('Shareable link')}
+              </label>
+              <input type="text" value={url} readOnly />
+            </bem.FormModal__item>
+          }
+        </bem.FormModal__item>
+        { this.props.deploymentActive &&
+          <bem.FormModal__item m='perms-public-data'>
+            <input type="checkbox"
+                  checked={anonCanViewData ? true : false}
+                  onChange={this.togglePerms}
+                  id="share-data-publicly"
+                  data-perm="view_submissions"/>
+            <label htmlFor="share-data-publicly">{t('Share data publicly')}</label>
           </bem.FormModal__item>
         }
       </bem.FormModal__item>
@@ -149,7 +176,7 @@ class SharingForm extends React.Component {
         permissions: asset.permissions,
         owner: asset.owner__username,
         pperms: parsePermissions(asset.owner__username, asset.permissions),
-        public_permission: getAnonymousUserPermission(asset.permissions),
+        public_permissions: asset.permissions.filter(function(perm){ return perm.user__username === anonUsername }),
         related_users: stores.asset.relatedUsers[uid]
       });
     }
@@ -239,12 +266,8 @@ class SharingForm extends React.Component {
         };
       }
     });
-    var btnKls = classNames('mdl-button','mdl-js-button', 'mdl-button--raised', inpStatus === 'success' ? 'mdl-button--colored' : 'mdl-button--disabled');
 
-    var availablePermissions = [
-      {value: 'view', label: t('Can View')},
-      {value: 'change', label: t('Can Edit')}
-    ];
+    var btnKls = classNames('mdl-button','mdl-js-button', 'mdl-button--raised', inpStatus === 'success' ? 'mdl-button--colored' : 'mdl-button--disabled');
 
     var uid = this.state.asset.uid;
     var kind = this.state.asset.kind;
@@ -260,6 +283,13 @@ class SharingForm extends React.Component {
     var initialsStyle = {
       background: `#${stringToColor(this.state.asset.owner__username)}`
     };
+
+    if (asset_type != 'survey') {
+      availablePermissions = [
+        {value: 'view', label: t('View')},
+        {value: 'change', label: t('Edit')},
+      ];
+    }
 
     return (
       <bem.FormModal>
@@ -291,7 +321,7 @@ class SharingForm extends React.Component {
             </bem.FormView__cell>
             <bem.FormModal__item m='perms-user'>
               <input type="text"
-                  id="permsUser" 
+                  id="permsUser"
                   ref='usernameInput'
                   placeholder={t('Enter a username')}
                   onKeyUp={this.usernameCheck}
@@ -311,16 +341,17 @@ class SharingForm extends React.Component {
           </bem.FormModal__item>
         </bem.FormModal__form>
 
-        { kind != 'collection' && asset_type == 'survey' && 
+        { kind != 'collection' && asset_type == 'survey' &&
           <bem.FormView__cell>
             <bem.FormView__cell m='label'>
               {t('Select share settings')}
             </bem.FormView__cell>
-            <PublicPermDiv 
+            <PublicPermDiv
               uid={uid}
-              publicPerm={this.state.public_permission}
+              publicPerms={this.state.public_permissions}
               kind={kind}
               objectUrl={objectUrl}
+              deploymentActive={this.state.asset.deployment__active}
             />
           </bem.FormView__cell>
         }

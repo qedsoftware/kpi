@@ -11,12 +11,12 @@ import cascadeMixin from './cascadeMixin';
 import AssetNavigator from './assetNavigator';
 import {Link, hashHistory} from 'react-router';
 import alertify from 'alertifyjs';
-
 import {
   surveyToValidJson,
   notify,
   assign,
-  t
+  t,
+  koboMatrixParser
 } from '../utils';
 
 import {
@@ -40,7 +40,7 @@ var ErrorMessage = bem.create('error-message'),
     ErrorMessage__strong = bem.create('error-message__header', '<strong>'),
     ErrorMessage__link = bem.create('error-message__link', '<a>');
 
-var webformStylesSupportUrl = "http://support.kobotoolbox.org/customer/en/portal/articles/2108533";
+var webformStylesSupportUrl = "http://help.kobotoolbox.org/creating-forms/formbuilder/using-alternative-enketo-web-form-styles";
 
 class FormSettingsEditor extends React.Component {
   constructor(props) {
@@ -277,18 +277,22 @@ export default assign({
       evt.preventDefault();
     }
 
-    if (this.state.settings__style) {
+    if (this.state.settings__style)
       this.app.survey.settings.set('style', this.state.settings__style);
-    }
+
+    if (this.state.name)
+      this.app.survey.settings.set('title', this.state.name);
+
     var params = {
       source: surveyToValidJson(this.app.survey),
     };
+
+    params = koboMatrixParser(params);
+
     if (this.state.asset && this.state.asset.url) {
       params.asset = this.state.asset.url;
     }
-    if (this.state.name !== this.state.savedName) {
-      params.name = this.state.name;
-    }
+
     dataInterface.createAssetSnapshot(params).done((content) => {
       this.setState({
         enketopreviewOverlay: content.enketopreviewlink,
@@ -314,6 +318,9 @@ export default assign({
     if (this.state.name) {
       params.name = this.state.name;
     }
+
+    params = koboMatrixParser(params);
+
     if (this.state.editorState === 'new') {
       params.asset_type = 'block';
       actions.resources.createResource.triggerAsync(params)
@@ -323,6 +330,7 @@ export default assign({
     } else {
       // update existing
       var assetId = this.props.params.assetid;
+
       actions.resources.updateAsset.triggerAsync(assetId, params)
         .then(() => {
           this.unpreventClosingTab();
@@ -332,8 +340,7 @@ export default assign({
           });
         })
         .catch((resp) => {
-          var errorMsg = `${t('Your changes could not be saved, likely because of a lost internet connection.')}&nbsp;
-                         ${t('Keep this window open and try saving again while using a better connection.')}`;
+          var errorMsg = `${t('Your changes could not be saved, likely because of a lost internet connection.')}&nbsp;${t('Keep this window open and try saving again while using a better connection.')}`;
           if (resp.statusText != 'error')
             errorMsg = resp.statusText;
 
@@ -425,7 +432,10 @@ export default assign({
         <bem.FormBuilderHeader>
           <bem.FormBuilderHeader__row m={['first', allButtonsDisabled ? 'disabled' : null]}>
 
-            <bem.FormBuilderHeader__cell m={'project-icon'} >
+            <bem.FormBuilderHeader__cell m={'project-icon'}
+              data-tip={t('Return to list')}
+              className="left-tooltip"
+              onClick={this.safeNavigateToFormsList}>
               <i className="k-icon-projects" />
             </bem.FormBuilderHeader__cell>
             <bem.FormBuilderHeader__cell m={'name'} >
@@ -452,7 +462,7 @@ export default assign({
 
               <bem.FormBuilderHeader__close m={[{
                     'close-warning': this.needsSave(),
-                  }]} onClick={this.navigateBack}>
+                  }]} onClick={this.safeNavigateToForm}>
                 <i className="k-icon-close"></i>
               </bem.FormBuilderHeader__close>
 
@@ -471,7 +481,7 @@ export default assign({
               { showAllAvailable ?
                 <bem.FormBuilderHeader__button m={['show-all', {
                       open: showAllOpen,
-                    }]} 
+                    }]}
                     onClick={this.showAll}
                     data-tip={t('Expand / collapse questions')}>
                   <i className="k-icon-view-all" />
@@ -485,24 +495,22 @@ export default assign({
                 <i className="k-icon-group" />
               </bem.FormBuilderHeader__button>
               <bem.FormBuilderHeader__button m={['download']}
-                  data-tip={t('Download form')} 
+                  data-tip={t('Download form')}
                   className="is-edge">
                 <i className="k-icon-download" />
               </bem.FormBuilderHeader__button>
 
-              { hasSettings ?
-                <bem.FormBuilderHeader__item>
-                  <bem.FormBuilderHeader__button m={{
-                    formstyle: true,
-                    formstyleactive: this.state.formStylePanelDisplayed,
-                  }} onClick={this.openFormStylePanel} 
-                    data-tip={t('Web form layout')} >
-                    <i className="k-icon-grid" />
-                    <span>{t('Layout')}</span>
-                    <i className="fa fa-angle-down" />
-                  </bem.FormBuilderHeader__button>
-                </bem.FormBuilderHeader__item>
-              : null }
+              <bem.FormBuilderHeader__item>
+                <bem.FormBuilderHeader__button m={{
+                  formstyle: true,
+                  formstyleactive: this.state.formStylePanelDisplayed,
+                }} onClick={this.openFormStylePanel}
+                  data-tip={t('Web form layout')} >
+                  <i className="k-icon-grid" />
+                  <span>{t('Layout')}</span>
+                  <i className="fa fa-angle-down" />
+                </bem.FormBuilderHeader__button>
+              </bem.FormBuilderHeader__item>
 
               <bem.FormBuilderHeader__button m={['attach']}
                   data-tip={t('Attach media files')}
@@ -536,7 +544,7 @@ export default assign({
             <bem.FormBuilderHeader__cell m={'spacer'} />
             <bem.FormBuilderHeader__cell m={'library-toggle'} >
               <bem.FormBuilderHeader__button m={['showLibrary']}
-                                             onClick={this.toggleLibraryNav} >
+                onClick={this.toggleLibraryNav} >
                 {t('Search Library')}
               </bem.FormBuilderHeader__button>
             </bem.FormBuilderHeader__cell>
@@ -545,22 +553,26 @@ export default assign({
             <FormStyle__panel m='formstyle'>
               <FormStyle__panelheader>
                 {t('form style')}
+                <a href={webformStylesSupportUrl} target="_blank" data-tip={t('Read more about form styles')}>
+                  <i className="k-icon-help"></i>
+                </a>
               </FormStyle__panelheader>
               <FormStyle__paneltext>
-                {t('select the form style that you would like to use. this will only affect web forms.')}
+                { hasSettings ?
+                  t('select the form style that you would like to use. this will only affect web forms.')
+                  :
+                  t('select the form style. this will only affect the Enketo preview, and it will not be saved with the question or block.')
+                }
+
               </FormStyle__paneltext>
-              <FormStyle__paneltext>
-                <a href={webformStylesSupportUrl}>
-                  {t('read more...')}
-                </a>
-              </FormStyle__paneltext>
+
               <Select
                 name="webform-style"
                 ref="webformStyle"
                 value={styleValue}
                 onChange={this.onStyleChange}
                 addLabelText={t('custom form style: "{label}"')}
-                allowCreate={true}
+                allowCreate
                 placeholder={AVAILABLE_FORM_STYLES[0].label}
                 options={AVAILABLE_FORM_STYLES}
               />
@@ -580,11 +592,6 @@ export default assign({
             <p>
               {this.state.surveyLoadError}
             </p>
-            <div>
-              <a onClick={hashHistory.goBack} href='#'>
-                {t('Back')}
-              </a>
-            </div>
           </ErrorMessage>
         );
     }
@@ -593,7 +600,7 @@ export default assign({
         <bem.Loading>
           <bem.Loading__inner>
             <i />
-            {t('loading...')} 
+            {t('loading...')}
           </bem.Loading__inner>
         </bem.Loading>
       );
@@ -658,22 +665,17 @@ export default assign({
       enketopreviewError: false,
     });
   },
-  navigateBack() {
-    var backRoute = this.state.backRoute;
-    if (this.state.backRoute == '/forms') {
-      backRoute = `/forms/${this.state.asset_uid}`;
-    }
-
+  safeNavigateToRoute(route) {
     if (!this.needsSave()) {
-      hashHistory.push(backRoute);
+      hashHistory.push(route);
     } else {
       let dialog = alertify.dialog('confirm');
       let opts = {
-        title: t('you have unsaved changes. leave form without saving?'),
+        title: t('You have unsaved changes. Leave form without saving?'),
         message: '',
         labels: {ok: t('Yes, leave form'), cancel: t('Cancel')},
         onok: (evt, val) => {
-          hashHistory.push(backRoute);
+          hashHistory.push(route);
         },
         oncancel: () => {
           dialog.destroy();
@@ -681,6 +683,16 @@ export default assign({
       };
       dialog.set(opts).show();
     }
+  },
+  safeNavigateToFormsList() {
+    this.safeNavigateToRoute('/forms/');
+  },
+  safeNavigateToForm() {
+    var backRoute = this.state.backRoute;
+    if (this.state.backRoute == '/forms') {
+      backRoute = `/forms/${this.state.asset_uid}`;
+    }
+    this.safeNavigateToRoute(backRoute);
   },
 
   render () {

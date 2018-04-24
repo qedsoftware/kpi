@@ -4,7 +4,6 @@ import reactMixin from 'react-mixin';
 import autoBind from 'react-autobind';
 import { hashHistory } from 'react-router';
 import Select from 'react-select';
-import moment from 'moment';
 import alertify from 'alertifyjs';
 import ui from '../ui';
 
@@ -45,7 +44,7 @@ class MainHeader extends Reflux.Component {
   constructor(props){
     super(props);
     this.state = assign({
-      dataPopoverShowing: false, 
+      dataPopoverShowing: false,
       asset: false,
       currentLang: currentLang(),
       libraryFiltersContext: searches.getSearchContext('library', {
@@ -76,7 +75,7 @@ class MainHeader extends Reflux.Component {
     });
 
     return assign({
-      dataPopoverShowing: false, 
+      dataPopoverShowing: false,
       asset: false,
       currentLang: currentLang(),
       libraryFiltersContext: searches.getSearchContext('library', {
@@ -111,7 +110,10 @@ class MainHeader extends Reflux.Component {
     actions.auth.logout();
   }
   accountSettings () {
-    hashHistory.push('account-settings');
+    // verifyLogin also refreshes stored profile data
+    actions.auth.verifyLogin.triggerAsync().then(() => {
+      hashHistory.push('account-settings');
+    });
   }
   languageChange (evt) {
     var langCode = $(evt.target).data('key');
@@ -151,16 +153,16 @@ class MainHeader extends Reflux.Component {
       return (
         <bem.AccountBox>
           {/*<bem.AccountBox__notifications className="is-edge">
-            <i className="fa fa-bell"></i> 
+            <i className="fa fa-bell"></i>
             <bem.AccountBox__notifications__count> 2 </bem.AccountBox__notifications__count>
           </bem.AccountBox__notifications>*/}
-          <ui.PopoverMenu type='account-menu' 
-                          triggerLabel={accountMenuLabel} 
+          <ui.PopoverMenu type='account-menu'
+                          triggerLabel={accountMenuLabel}
                           buttonType='text'>
               <bem.AccountBox__menu>
                 <bem.AccountBox__menuLI key='1'>
                   <bem.AccountBox__menuItem m={'avatar'}>
-                    {accountMenuLabel} 
+                    {accountMenuLabel}
                   </bem.AccountBox__menuItem>
                   <bem.AccountBox__menuItem m={'mini-profile'}>
                     <span className="account-username">{accountName}</span>
@@ -174,7 +176,7 @@ class MainHeader extends Reflux.Component {
                 </bem.AccountBox__menuLI>
                 <bem.AccountBox__menuLI m={'lang'} key='2'>
                   <bem.AccountBox__menuLink>
-                    <i className="k-icon-language" /> 
+                    <i className="k-icon-language" />
                     {t('Language')}
                   </bem.AccountBox__menuLink>
                   <ul>
@@ -183,7 +185,7 @@ class MainHeader extends Reflux.Component {
                 </bem.AccountBox__menuLI>
                 <bem.AccountBox__menuLI m={'logout'} key='3'>
                   <bem.AccountBox__menuLink onClick={this.logout}>
-                    <i className="k-icon-logout" /> 
+                    <i className="k-icon-logout" />
                     {t('Logout')}
                   </bem.AccountBox__menuLink>
                 </bem.AccountBox__menuLI>
@@ -194,7 +196,7 @@ class MainHeader extends Reflux.Component {
     }
 
     return (
-          <span>{t('not logged in')}</span>
+          <span>{t('n/a')}</span>
     );
   }
   renderGitRevInfo () {
@@ -230,7 +232,7 @@ class MainHeader extends Reflux.Component {
 
     clearTimeout(typingTimer);
 
-    typingTimer = setTimeout(() => { 
+    typingTimer = setTimeout(() => {
       if (!this.state.asset.name.trim()) {
         alertify.error(t('Please enter a title for your project'));
       } else {
@@ -247,17 +249,10 @@ class MainHeader extends Reflux.Component {
     }, 1500);
 
   }
-  userCanEditAsset() {
-    if (stores.session.currentAccount && this.state.asset) {
-      const currentAccount = stores.session.currentAccount;
-      if (currentAccount.is_superuser || currentAccount.username == this.state.asset.owner__username || this.state.asset.access.change[currentAccount.username])
-        return true;
-    }
-
-    return false;
-  }
   render () {
-    var userCanEditAsset = this.userCanEditAsset();
+    var userCanEditAsset = false;
+    if (this.state.asset)
+      userCanEditAsset = this.userCan('change_asset', this.state.asset);
 
     return (
         <header className="mdl-layout__header">
@@ -270,12 +265,12 @@ class MainHeader extends Reflux.Component {
                 <bem.Header__logo />
               </a>
             </span>
-            { this.isFormList() && 
+            { this.isFormList() &&
               <div className="mdl-layout__header-searchers">
                 <ListSearch searchContext={this.state.formFiltersContext} placeholderText={t('Search Projects')} />
               </div>
             }
-            { this.isLibrary() && 
+            { this.isLibrary() &&
               <div className="mdl-layout__header-searchers">
                 <ListSearch searchContext={this.state.libraryFiltersContext} placeholderText={t('Search Library')} />
               </div>
@@ -287,10 +282,10 @@ class MainHeader extends Reflux.Component {
                 :
                   <i className="k-icon-drafts" />
                 }
-                <bem.FormTitle__name data-tip={t('click to edit')}>
+                <bem.FormTitle__name>
                   <input type="text"
                         name="title"
-                        placeholder={userCanEditAsset ? t('Project title') : ''}
+                        placeholder={t('Project title')}
                         value={this.state.asset.name ? this.state.asset.name : ''}
                         onChange={this.assetTitleChange}
                         disabled={!userCanEditAsset}
@@ -317,6 +312,7 @@ class MainHeader extends Reflux.Component {
 
 reactMixin(MainHeader.prototype, Reflux.ListenerMixin);
 reactMixin(MainHeader.prototype, mixins.contextRouter);
+reactMixin(MainHeader.prototype, mixins.permissions);
 
 MainHeader.contextTypes = {
   router: PropTypes.object
