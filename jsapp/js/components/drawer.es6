@@ -21,7 +21,6 @@ import {
   t,
   assign,
   anonUsername,
-  supportUrl,
   validFileTypes
 } from '../utils';
 
@@ -65,23 +64,9 @@ class FormSidebar extends Reflux.Component {
   render () {
     return (
       <bem.FormSidebar__wrapper>
-        {this.state.currentAssetId}
-        <ui.PopoverMenu type='new-menu' 
-            triggerLabel={t('new')}>
-            <bem.PopoverMenu__link onClick={this.newFormModal}>
-              <i className="k-icon-projects" />
-              {t('Project')}
-            </bem.PopoverMenu__link>
-            <Dropzone onDrop={this.dropFiles} 
-                      multiple={false} 
-                      className='dropzone'
-                      accept={validFileTypes()}>
-              <bem.PopoverMenu__link>
-                <i className="k-icon-upload" />
-                {t('upload')}
-              </bem.PopoverMenu__link>
-            </Dropzone>
-        </ui.PopoverMenu>
+        <button onClick={this.newFormModal} className="mdl-button mdl-button--raised mdl-button--colored">
+          {t('new')}
+        </button>
         <SidebarFormsList/>
       </bem.FormSidebar__wrapper>
     );
@@ -148,7 +133,8 @@ class Drawer extends Reflux.Component {
     this.state = assign(stores.session, stores.pageState);
     this.stores = [
       stores.session,
-      stores.pageState
+      stores.pageState,
+      stores.serverEnvironment,
     ];
   }
   toggleFixedDrawer() {
@@ -174,18 +160,25 @@ class Drawer extends Reflux.Component {
 
         <div className='k-drawer__icons-bottom'>
           { stores.session.currentAccount &&
-            <a href={stores.session.currentAccount.projects_url} 
-               className='k-drawer__link' 
-               target="_blank"
-               data-tip={t('Projects (legacy)')}>
+            <a href={stores.session.currentAccount.projects_url}
+              className='k-drawer__link'
+              target="_blank"
+              data-tip={t('Projects (legacy)')}
+            >
               <i className="k-icon k-icon-globe" />
             </a>
           }
-          <a href='https://github.com/kobotoolbox/' className='k-drawer__link' target="_blank" data-tip={t('source')}>
-            <i className="k-icon k-icon-github" />
-          </a>
-          { stores.session.currentAccount &&
-            <a href={supportUrl()} className='k-drawer__link' target="_blank" data-tip={t('help')}>
+          { stores.serverEnvironment &&
+            stores.serverEnvironment.state.source_code_url &&
+            <a href={stores.serverEnvironment.state.source_code_url}
+              className='k-drawer__link' target="_blank" data-tip={t('source')}>
+              <i className="k-icon k-icon-github" />
+            </a>
+          }
+          { stores.serverEnvironment &&
+            stores.serverEnvironment.state.support_url &&
+            <a href={stores.serverEnvironment.state.support_url}
+              className='k-drawer__link' target="_blank" data-tip={t('help')}>
               <i className="k-icon k-icon-help" />
             </a>
           }

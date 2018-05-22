@@ -1,6 +1,6 @@
 // FORM BUILDER MAIN LAYOUT
 @media screen and (min-width: 1400px) {
-  .page-wrapper--header-hidden.page-wrapper--drawer-hidden {
+  .page-wrapper--in-formbuilder {
     &:before {
       content: ' ';
       width: 100%;
@@ -32,6 +32,7 @@
 
 .formBuilder-header {
   height: 125px;
+  transition: margin 0.2s;
 }
 
 .formBuilder__contents {
@@ -48,13 +49,22 @@
       margin-right: 400px;
       transition: margin 0.2s;
     }
+
+    .form-style__panel--formstyle {
+      margin-right: 400px;
+      transition: margin 0.2s;
+    }
   }
 }
 
 .form-wrap {
   padding: 0px 75px;
   width: 100%;
-  min-height: 200px;
+
+  > .formbuilder-wrap > .survey-editor > .survey-editor__list {
+    // height of viewport minus (form-meta box + formbuilder header)
+    min-height: calc(100vh - 200px);
+  }
 
   .survey-header, .sub-header-bar {
     display: none;
@@ -104,11 +114,15 @@
 
 .formBuilder--formStyleDisplayed {
   > .formBuilder-header {
-    height: 280px;
+    height: 260px;
   }
 
   .formBuilder__contents {
-    height: calc(100% - 300px);
+    height: calc(100% - 280px);
+  }
+
+  .formBuilder-header__button--formstyle {
+    color: $black;
   }
 }
 
@@ -139,6 +153,12 @@
       text-align: center;
       vertical-align: middle;
       height: 75px;
+      cursor: pointer;
+      transition: background-color 0.2s, color 0.2s;
+
+      &:hover {
+          background-color: darken($cool-green, 10%);
+      }
 
       i {
         color: #FFF;
@@ -328,6 +348,16 @@
   padding: 12px 12px 20px;
   margin: 12px 0;
   background-color: #eee;
+
+  .Select {
+    z-index: 4;
+    max-width: calc(100% - 40px);
+  }
+
+  i.k-icon-help {
+    font-size: 24px;
+    margin-left: 8px;
+  }
 }
 
 .form-style__panelheader {

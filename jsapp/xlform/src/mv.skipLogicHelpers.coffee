@@ -113,8 +113,10 @@ module.exports = do ->
 
       question = @model._get_question()
       if (question._isSelectQuestion())
-        response_value = _.find(question.getList().options.models, (option) ->
-          option.get('name') == response_value).cid
+        rV = _.find(question.getList().options.models, (option) ->
+          option.get('name') == response_value)
+        if (rV && rV.cid)
+          response_value = rV.cid
 
       @view.response_value_view.val response_value
       response_view.$el.trigger('change')
@@ -170,8 +172,8 @@ module.exports = do ->
           criteria.push @build_empty_criterion()
 
       catch e
-        trackJs?.console.log("SkipLogic cell: #{serialized_criteria}")
-        trackJs?.console.error("could not parse skip logic. falling back to hand-coded")
+        Raven?.captureException new Error('could not parse skip logic. falling back to hand-coded'), extra:
+          criteria: serialized_criteria
         return false
       return [criteria, parsed.operator]
 
@@ -336,7 +338,7 @@ module.exports = do ->
         @$add_new_criterion_button?.hide()
 
       if !@$add_new_criterion_button
-        trackJs?.console.error("@$add_new_criterion_button is not defined. cannot call #{action} [inside of determine_add_new_criterion_visibility]")
+        Raven?.captureException("@$add_new_criterion_button is not defined. cannot call #{action} [inside of determine_add_new_criterion_visibility]")
 
     constructor: (@presenters, separator, @builder, @view_factory, @context) ->
       @view = @view_factory.create_criterion_builder_view()
@@ -391,7 +393,7 @@ module.exports = do ->
     constructor: (@criteria, @builder, @view_factory, @context) ->
       @$parent = $('<div>')
       @textarea = @view_factory.create_textarea @criteria, 'skiplogic__handcode-edit'
-      @button = @view_factory.create_button 'x', 'skiplogic-handcode__cancel'
+      @button = @view_factory.create_button '<i class="fa fa-trash-o"></i>', 'skiplogic-handcode__cancel'
 
   class skipLogicHelpers.SkipLogicModeSelectorHelper
     render: ($destination) ->
@@ -457,39 +459,40 @@ module.exports = do ->
       equality_operator_type: 'basic'
       response_type: 'integer'
       name: 'integer'
-    rank:
-      operators: [
-        ops.EX #1
-        ops.EQ #2
-      ]
-      equality_operator_type: 'select_multiple'
-      response_type: 'dropdown'
-      name: 'rank'
-    rank__item:
-      operators: [
-        ops.EX #1
-        ops.EQ #2
-      ]
-      equality_operator_type: 'select_multiple'
-      response_type: 'dropdown'
-      name: 'rank_item'
 
-    score:
-      operators: [
-        ops.EX #1
-        ops.EQ #2
-      ]
-      equality_operator_type: 'select_multiple'
-      response_type: 'dropdown'
-      name: 'score'
-    score__row:
-      operators: [
-        ops.EX #1
-        ops.EQ #2
-      ]
-      equality_operator_type: 'select_multiple'
-      response_type: 'dropdown'
-      name: 'score_row'
+    # rank:
+    #   operators: [
+    #     ops.EX #1
+    #     ops.EQ #2
+    #   ]
+    #   equality_operator_type: 'select_multiple'
+    #   response_type: 'dropdown'
+    #   name: 'rank'
+    # rank__item:
+    #   operators: [
+    #     ops.EX #1
+    #     ops.EQ #2
+    #   ]
+    #   equality_operator_type: 'select_multiple'
+    #   response_type: 'dropdown'
+    #   name: 'rank_item'
+
+    # score:
+    #   operators: [
+    #     ops.EX #1
+    #     ops.EQ #2
+    #   ]
+    #   equality_operator_type: 'select_multiple'
+    #   response_type: 'dropdown'
+    #   name: 'score'
+    # score__row:
+    #   operators: [
+    #     ops.EX #1
+    #     ops.EQ #2
+    #   ]
+    #   equality_operator_type: 'select_multiple'
+    #   response_type: 'dropdown'
+    #   name: 'score_row'
 
     barcode:
       operators: [

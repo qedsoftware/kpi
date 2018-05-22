@@ -11,11 +11,7 @@ import actions from '../actions';
 import {dataInterface} from '../dataInterface';
 import searches from '../searches';
 import stores from '../stores';
-import AssetRow from './assetrow';
-import {
-  parsePermissions,
-  t,
-} from '../utils';
+import {t} from '../utils';
 
 class ListSearch extends React.Component {
   constructor(props) {
@@ -104,7 +100,7 @@ class ListTagFilter extends React.Component {
           <Select
               name="tags"
               value=""
-              disabled={true}
+              disabled
               multi={false}
               placeholder={t('Tags are loading...')}
               className={this.props.hidden ? 'hidden' : null}
@@ -117,7 +113,7 @@ class ListTagFilter extends React.Component {
         <i className="fa fa-search" />
         <Select
             name="tags"
-            multi={true}
+            multi
             placeholder={t('Search Tags')}
             noResultsText={t('No results found')}
             options={this.state.availableTags}

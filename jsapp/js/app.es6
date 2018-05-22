@@ -2,10 +2,11 @@ import $ from 'jquery';
 window.jQuery = $;
 window.$ = $;
 require('jquery.scrollto');
-require('jquery-ui/sortable');
+require('jquery-ui/ui/widgets/sortable');
 
 import React from 'react';
 import ReactDOM from 'react-dom';
+
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import DocumentTitle from 'react-document-title';
@@ -25,7 +26,6 @@ import {
 import Select from 'react-select';
 import moment from 'moment';
 
-import searches from './searches';
 import actions from './actions';
 
 import stores from './stores';
@@ -43,6 +43,7 @@ import {
 
 import Reports from './components/reports';
 import FormLanding from './components/formLanding';
+import FormSummary from './components/formSummary';
 import FormSubScreens from './components/formSubScreens';
 import FormViewTabs from './components/formViewTabs';
 import Modal from './components/modal';
@@ -51,20 +52,14 @@ import {ChangePassword, AccountSettings} from './components/accountSettings';
 import {
   getAnonymousUserPermission,
   anonUsername,
-  parsePermissions,
   log,
   t,
   assign,
-  isLibrary,
   currentLang
 } from './utils';
 
 import hotkey from 'react-hotkey';
 hotkey.activate();
-
-var assetStore = stores.asset;
-var sessionStore = stores.session;
-
 
 function stringifyRoutes(contextRouter) {
   return JSON.stringify(contextRouter.getCurrentRoutes().map(function(r){
@@ -87,6 +82,12 @@ class App extends React.Component {
     // slide out drawer overlay on every page change (better mobile experience)
     if (this.state.pageState.showFixedDrawer)
       stores.pageState.setState({showFixedDrawer: false});
+    // hide modal on every page change
+    if (this.state.pageState.modal)
+      stores.pageState.hideModal();
+  }
+  componentDidMount () {
+    actions.misc.getServerEnvironment();
   }
   handleHotkey (e) {
     if (e.altKey && (e.keyCode == '69' || e.keyCode == '186')) {
@@ -98,19 +99,20 @@ class App extends React.Component {
     return (
       <DocumentTitle title="KoBoToolbox">
         <div className="mdl-wrapper">
-          { !this.isFormBuilder() && !this.state.pageState.headerHidden && 
+          { !this.isFormBuilder() && !this.state.pageState.headerHidden &&
             <div className="k-header__bar"></div>
           }
           <bem.PageWrapper m={{
               'fixed-drawer': this.state.pageState.showFixedDrawer,
-              'header-hidden': (this.isFormBuilder() || this.state.pageState.headerHidden),
-              'drawer-hidden': (this.isFormBuilder() || this.state.pageState.drawerHidden),
+              'header-hidden': this.state.pageState.headerHidden,
+              'drawer-hidden': this.state.pageState.drawerHidden,
+              'in-formbuilder': this.isFormBuilder()
                 }} className="mdl-layout mdl-layout--fixed-header">
               { this.state.pageState.modal &&
                 <Modal params={this.state.pageState.modal} />
               }
 
-              { !this.isFormBuilder() && !this.state.pageState.headerHidden && 
+              { !this.isFormBuilder() && !this.state.pageState.headerHidden &&
                 <MainHeader assetid={assetid}/>
               }
               { !this.isFormBuilder() && !this.state.pageState.drawerHidden &&
@@ -167,7 +169,7 @@ class FormJson extends React.Component {
             <code>
               { this.state.assetcontent ?
                 JSON.stringify(this.state.assetcontent, null, 4)
-             : null }
+                : null }
             </code>
             </pre>
           </bem.FormView>
@@ -247,7 +249,7 @@ class SectionNotFound extends React.Component {
   }
 };
 
-var routes = (
+export var routes = (
   <Route name="home" path="/" component={App}>
     <Route path="account-settings" component={AccountSettings} />
     <Route path="change-password" component={ChangePassword} />
@@ -267,11 +269,15 @@ var routes = (
     <Route path="forms" >
       <IndexRoute component={FormsSearchableList} />
 
-      <Route path="/forms/:assetid"> 
+      <Route path="/forms/:assetid">
         {/*<Route name="form-download" path="download" component={FormDownload} />*/}
         <Route path="json" component={FormJson} />
         <Route path="xform" component={FormXform} />
         <Route path="edit" component={FormPage} />
+
+        <Route path="summary">
+          <IndexRoute component={FormSummary} />
+        </Route>
 
         <Route path="landing">
           <IndexRoute component={FormLanding} />
@@ -284,6 +290,7 @@ var routes = (
           <Route path="downloads" component={FormSubScreens} />
           <Route path="gallery" component={FormSubScreens} />
           <Route path="map" component={FormSubScreens} />
+          <Route path="map/:viewby" component={FormSubScreens} />
           <IndexRedirect to="report" />
         </Route>
 
@@ -306,12 +313,22 @@ var routes = (
   </Route>
 );
 
+/* Send a pageview to Google Analytics for every change in routes */
+hashHistory.listen(function(loc) {
+  if (typeof ga == 'function') {
+    ga('send', 'pageview', window.location.hash);
+  }
+});
+
 class RunRoutes extends React.Component {
+  componentDidMount(){
+    // when hot reloading, componentWillReceiveProps whines about changing the routes prop so this shuts that up
+    this.router.componentWillReceiveProps = function(){}
+  }
+
   render() {
     return (
-      <Router history={hashHistory}>
-        {routes}
-      </Router>
+      <Router history={hashHistory} ref={ref=>this.router = ref} routes={this.props.routes} />
     );
   }
 }
