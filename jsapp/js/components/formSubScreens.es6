@@ -14,11 +14,14 @@ import ui from '../ui';
 import mixins from '../mixins';
 import DocumentTitle from 'react-document-title';
 import SharingForm from '../components/sharingForm';
+import DataTable from '../components/table';
 
 import {
   ProjectSettingsEditor,
   ProjectDownloads
 } from '../components/formEditors';
+
+import FormMap from '../components/map';
 
 import {
   assign,
@@ -34,7 +37,6 @@ export class FormSubScreens extends React.Component {
     autoBind(this);
   }
   componentDidMount () {
-    this.listenTo(stores.session, this.dmixSessionStoreChange);
     this.listenTo(stores.asset, this.dmixAssetStoreChange);
     var uid = this.props.params.assetid || this.props.uid || this.props.params.uid;
     if (this.props.randdelay && uid) {
@@ -44,9 +46,21 @@ export class FormSubScreens extends React.Component {
     } else if (uid) {
       actions.resources.loadAsset({id: uid});
     }
-
   }
   render () {
+    if (!this.state.permissions)
+      return false;
+
+    if (this.props.location.pathname != `/forms/${this.state.uid}/settings` &&
+        !this.userCan('view_submissions', this.state)) {
+      return this.renderDenied();
+    }
+
+    if (this.props.location.pathname == `/forms/${this.state.uid}/settings` &&
+        !this.userCan('change_asset', this.state)) {
+      return this.renderDenied();
+    }
+
     var formClass = '', iframeUrl = '', report__base = '', deployment__identifier = '';
 
     if (this.state.uid != undefined) {
@@ -59,13 +73,19 @@ export class FormSubScreens extends React.Component {
           iframeUrl = report__base+'/digest.html';
           break;
         case `/forms/${this.state.uid}/data/table`:
+          return <DataTable asset={this.state} />;
+          break;
+        case `/forms/${this.state.uid}/data/table-legacy`:
           iframeUrl = report__base+'/export.html';
           break;
         case `/forms/${this.state.uid}/data/gallery`:
           iframeUrl = deployment__identifier+'/photos';
           break;
         case `/forms/${this.state.uid}/data/map`:
-          iframeUrl = deployment__identifier+'/map';
+          return <FormMap asset={this.state} />;
+          break;
+        case `/forms/${this.state.uid}/data/map/${this.props.params.viewby}`:
+          return <FormMap asset={this.state} viewby={this.props.params.viewby}/>;
           break;
         // case `/forms/${this.state.uid}/settings/kobocat`:
         //   iframeUrl = deployment__identifier+'/form_settings';
@@ -78,9 +98,6 @@ export class FormSubScreens extends React.Component {
             iframeUrl = deployment__identifier+'/form_settings';
           return this.renderSettingsEditor(iframeUrl);
           break;
-        // case `/forms/${this.state.uid}/settings/sharing`:
-        //   return this.renderSharing();
-        //   break;
         case `/forms/${this.state.uid}/reset`:
           return this.renderReset();
           break;
@@ -90,7 +107,7 @@ export class FormSubScreens extends React.Component {
     var docTitle = this.state.name || t('Untitled');
 
     return (
-        <DocumentTitle title={`${docTitle} | KoboToolbox`}>      
+        <DocumentTitle title={`${docTitle} | KoboToolbox`}>
           <bem.FormView>
             <bem.FormView__cell m='iframe'>
               <iframe src={iframeUrl} />
@@ -98,16 +115,6 @@ export class FormSubScreens extends React.Component {
           </bem.FormView>
         </DocumentTitle>
       );
-  }
-  renderSharing() {
-    var docTitle = this.state.name || t('Untitled');
-    return (
-        <DocumentTitle title={`${docTitle} | KoboToolbox`}>
-          <bem.FormView m={'settings-sharing'}>
-            <SharingForm />
-          </bem.FormView>
-        </DocumentTitle>
-    );
   }
   renderSettingsEditor(iframeUrl) {
     var docTitle = this.state.name || t('Untitled');
@@ -122,11 +129,9 @@ export class FormSubScreens extends React.Component {
   renderProjectDownloads() {
     var docTitle = this.state.name || t('Untitled');
     return (
-        <DocumentTitle title={`${docTitle} | KoboToolbox`}>
-          <bem.FormView m='form-data-downloads'>
-            <ProjectDownloads asset={this.state} />
-          </bem.FormView>
-        </DocumentTitle>
+      <DocumentTitle title={`${docTitle} | KoboToolbox`}>
+        <ProjectDownloads asset={this.state} />
+      </DocumentTitle>
     );
   }
   renderReset() {
@@ -139,11 +144,25 @@ export class FormSubScreens extends React.Component {
       </bem.Loading>
     );
   }
-
+  renderDenied() {
+    return (
+      <bem.FormView>
+        <bem.Loading>
+          <bem.Loading__inner>
+            <h3>
+              {t('Access Denied')}
+            </h3>
+            {t('You do not have permission to view this page.')}
+          </bem.Loading__inner>
+        </bem.Loading>
+      </bem.FormView>
+    );
+  }
 };
 
 reactMixin(FormSubScreens.prototype, Reflux.ListenerMixin);
 reactMixin(FormSubScreens.prototype, mixins.dmix);
+reactMixin(FormSubScreens.prototype, mixins.permissions);
 reactMixin(FormSubScreens.prototype, mixins.contextRouter);
 
 FormSubScreens.contextTypes = {

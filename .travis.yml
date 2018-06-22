@@ -23,9 +23,9 @@ cache:
 before_script:
   - psql -c 'create database travis_ci_test;' -U postgres
 script:
-  - gulp copy
+  - npm run copy-fonts
   - npm run build
-  - coverage run --source='hub,kpi,kobo' --omit='*/tests/*,*/migrations/*,*/management/commands/*' manage.py test
+  - pytest -vv --cov
   - npm run test
 after_script:
   - coverage xml && python-codacy-coverage -r coverage.xml
@@ -50,8 +50,7 @@ install:
         nvm install $TRAVIS_NODE_VERSION
   - npm install -g install npm@latest
   - npm config set strict-ssl false && npm install --save-dev
-  - bower install
   - pip install --upgrade 'pip>=8.0' wheel
   - pip install pip-tools
   - pip-sync dependencies/pip/requirements.txt
-  - pip install coverage codacy-coverage python-coveralls
+  - pip install coverage codacy-coverage python-coveralls pytest-cov

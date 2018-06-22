@@ -4,6 +4,7 @@ import json
 import pytz
 from collections import OrderedDict
 
+import constance
 from django.contrib.auth.models import User, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist
@@ -26,7 +27,7 @@ from .models import AssetVersion
 from .models import Collection
 from .models import CollectionChildrenQuerySet
 from .models import UserCollectionSubscription
-from .models import ImportTask
+from .models import ImportTask, ExportTask
 from .models import ObjectPermission
 from .models.object_permission import get_anonymous_user, get_objects_for_user
 from .models.asset import ASSET_TYPES
@@ -422,6 +423,9 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
     settings = WritableJSONField(required=False, allow_blank=True)
     content = WritableJSONField(required=False)
     report_styles = WritableJSONField(required=False)
+    report_custom = WritableJSONField(required=False)
+    map_styles = WritableJSONField(required=False)
+    map_custom = WritableJSONField(required=False)
     xls_link = serializers.SerializerMethodField()
     summary = serializers.ReadOnlyField()
     koboform_link = serializers.SerializerMethodField()
@@ -479,6 +483,9 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
                   'deployment__data_download_links',
                   'deployment__submission_count',
                   'report_styles',
+                  'report_custom',
+                  'map_styles',
+                  'map_custom',
                   'content',
                   'downloads',
                   'embeds',
@@ -722,6 +729,42 @@ class ImportTaskListSerializer(ImportTaskSerializer):
         )
 
 
+class ExportTaskSerializer(serializers.HyperlinkedModelSerializer):
+    url = serializers.HyperlinkedIdentityField(
+        lookup_field='uid',
+        view_name='exporttask-detail'
+    )
+    messages = ReadOnlyJSONField(required=False)
+    data = ReadOnlyJSONField()
+
+    class Meta:
+        model = ExportTask
+        fields = (
+            'url',
+            'status',
+            'messages',
+            'uid',
+            'date_created',
+            'last_submission_time',
+            'result',
+            'data',
+        )
+        extra_kwargs = {
+            'status': {
+                'read_only': True,
+            },
+            'uid': {
+                'read_only': True,
+            },
+            'last_submission_time': {
+                'read_only': True,
+            },
+            'result': {
+                'read_only': True,
+            },
+        }
+
+
 class AssetListSerializer(AssetSerializer):
     class Meta(AssetSerializer.Meta):
         fields = ('url',
@@ -780,7 +823,6 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     server_time = serializers.SerializerMethodField()
     date_joined = serializers.SerializerMethodField()
     projects_url = serializers.SerializerMethodField()
-    support = serializers.SerializerMethodField()
     gravatar = serializers.SerializerMethodField()
     languages = serializers.SerializerMethodField()
     extra_details = WritableJSONField(source='extra_details.data')
@@ -798,7 +840,6 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             'server_time',
             'date_joined',
             'projects_url',
-            'support',
             'is_superuser',
             'gravatar',
             'is_staff',
@@ -821,12 +862,6 @@ class CurrentUserSerializer(serializers.ModelSerializer):
 
     def get_projects_url(self, obj):
         return '/'.join((settings.KOBOCAT_URL, obj.username))
-
-    def get_support(self, obj):
-        return {
-            'email': settings.KOBO_SUPPORT_EMAIL,
-            'url': settings.KOBO_SUPPORT_URL,
-        }
 
     def get_gravatar(self, obj):
         return gravatar_url(obj.email)

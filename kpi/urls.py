@@ -3,6 +3,7 @@ from django.views.i18n import javascript_catalog
 from hub.views import ExtraDetailRegistrationView
 from rest_framework.routers import DefaultRouter
 from rest_framework_extensions.routers import ExtendedDefaultRouter
+import private_storage.urls
 
 from kpi.views import (
     AssetViewSet,
@@ -14,12 +15,14 @@ from kpi.views import (
     CollectionViewSet,
     TagViewSet,
     ImportTaskViewSet,
+    ExportTaskViewSet,
     ObjectPermissionViewSet,
     SitewideMessageViewSet,
     AuthorizedApplicationUserViewSet,
     OneTimeAuthenticationKeyViewSet,
     UserCollectionSubscriptionViewSet,
     TokenView,
+    EnvironmentView,
 )
 
 from kpi.views import home, one_time_login, browser_tests
@@ -52,6 +55,7 @@ router.register(r'tags', TagViewSet)
 router.register(r'permissions', ObjectPermissionViewSet)
 router.register(r'reports', ReportsViewSet, base_name='reports')
 router.register(r'imports', ImportTaskViewSet)
+router.register(r'exports', ExportTaskViewSet)
 router.register(r'sitewide_messages', SitewideMessageViewSet)
 
 router.register(r'authorized_application/users',
@@ -91,6 +95,8 @@ urlpatterns = [
     url(r'^jsi18n/$', javascript_catalog, js_info_dict, name='javascript-catalog'),
     # url(r'^.*', home),
     url(r'^token/$', TokenView.as_view(), name='token'),
+    url(r'^environment/$', EnvironmentView.as_view(), name='environment'),
+    url(r'^private-media/', include(private_storage.urls)),
     # Statistics for superusers
     url(r'^superuser_stats/user_report/$',
         'kobo.apps.superuser_stats.views.user_report'),

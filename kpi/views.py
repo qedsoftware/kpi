@@ -2,6 +2,7 @@ from distutils.util import strtobool
 from itertools import chain
 import copy
 import json
+import base64
 import datetime
 
 from django.contrib.auth import login
@@ -18,6 +19,7 @@ from django.conf import settings
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.translation import ugettext_lazy as _
+
 
 from rest_framework import (
     viewsets,
@@ -37,6 +39,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from rest_framework_extensions.mixins import NestedViewSetMixin
 
+import constance
 from taggit.models import Tag
 
 from .filters import KpiAssignedObjectPermissionsFilter
@@ -51,6 +54,7 @@ from .models import (
     AssetVersion,
     AssetSnapshot,
     ImportTask,
+    ExportTask,
     ObjectPermission,
     AuthorizedApplication,
     OneTimeAuthenticationKey,
@@ -58,6 +62,7 @@ from .models import (
     )
 from .models.object_permission import get_anonymous_user, get_objects_for_user
 from .models.authorized_application import ApplicationTokenAuthentication
+from .models.import_export_task import _resolve_url_to_asset_or_collection
 from .model_utils import disable_auto_field_update
 from .permissions import (
     IsOwnerOrReadOnly,
@@ -81,6 +86,7 @@ from .serializers import (
     CurrentUserSerializer, CreateUserSerializer,
     TagSerializer, TagListSerializer,
     ImportTaskSerializer, ImportTaskListSerializer,
+    ExportTaskSerializer,
     ObjectPermissionSerializer,
     AuthorizedApplicationUserSerializer,
     OneTimeAuthenticationKeySerializer,
@@ -89,7 +95,7 @@ from .serializers import (
 from .utils.gravatar_url import gravatar_url
 from .utils.kobo_to_xlsform import to_xlsform_structure
 from .utils.ss_structure_to_mdtable import ss_structure_to_mdtable
-from .tasks import import_in_background
+from .tasks import import_in_background, export_in_background
 from deployment_backends.backends import DEPLOYMENT_BACKENDS
 from deployment_backends.kobocat_backend import KobocatDataProxyViewSetMixin
 
@@ -464,24 +470,118 @@ class ImportTaskViewSet(viewsets.ReadOnlyModelViewSet):
     def create(self, request, *args, **kwargs):
         if self.request.user.is_anonymous():
             raise exceptions.NotAuthenticated()
+        itask_data = {
+            'library': request.POST.get('library') not in ['false', False],
+            # NOTE: 'filename' here comes from 'name' (!) in the POST data
+            'filename': request.POST.get('name', None),
+            'destination': request.POST.get('destination', None),
+        }
         if 'base64Encoded' in request.POST:
             encoded_str = request.POST['base64Encoded']
             encoded_substr = encoded_str[encoded_str.index('base64') + 7:]
-            itask_data = {
-                'base64Encoded': encoded_substr,
-                # NOTE: 'filename' here comes from 'name' (!) in the POST data
-                'library': request.POST.get('library') not in ['false', False],
-                'filename': request.POST.get('name', None),
-                'destination': request.POST.get('destination', None),
-            }
-            import_task = ImportTask.objects.create(user=request.user,
-                                                    data=itask_data)
-            # Have Celery run the import in the background
-            import_in_background.delay(import_task_uid=import_task.uid)
-            return Response({
-                'uid': import_task.uid,
-                'status': ImportTask.PROCESSING
-            }, status.HTTP_201_CREATED)
+            itask_data['base64Encoded'] = encoded_substr
+        elif 'file' in request.data:
+            encoded_xls = base64.b64encode(request.data['file'].read())
+            itask_data['base64Encoded'] = encoded_xls
+            if 'filename' not in itask_data:
+                itask_data['filename'] = request.data['file'].name
+        elif 'url' in request.POST:
+            itask_data['single_xls_url'] = request.POST['url']
+        import_task = ImportTask.objects.create(user=request.user,
+                                                data=itask_data)
+        # Have Celery run the import in the background
+        import_in_background.delay(import_task_uid=import_task.uid)
+        return Response({
+            'uid': import_task.uid,
+            'url': reverse(
+                'importtask-detail',
+                kwargs={'uid': import_task.uid},
+                request=request),
+            'status': ImportTask.PROCESSING
+        }, status.HTTP_201_CREATED)
+
+
+class ExportTaskViewSet(NoUpdateModelViewSet):
+    queryset = ExportTask.objects.all()
+    serializer_class = ExportTaskSerializer
+    lookup_field = 'uid'
+
+    def get_queryset(self, *args, **kwargs):
+        if self.request.user.is_anonymous():
+            return ExportTask.objects.none()
+
+        queryset = ExportTask.objects.filter(
+            user=self.request.user).order_by('date_created')
+
+        # Ultra-basic filtering by:
+        # * source URL or UID if `q=source:[URL|UID]` was provided;
+        # * comma-separated list of `ExportTask` UIDs if
+        #   `q=uid__in:[UID],[UID],...` was provided
+        q = self.request.query_params.get('q', False)
+        if not q:
+            # No filter requested
+            return queryset
+        if q.startswith('source:'):
+            q = q.lstrip('source:')
+            # This is exceedingly crude... but support for querying inside
+            # JSONField not available until Django 1.9
+            queryset = queryset.filter(data__contains=q)
+        elif q.startswith('uid__in:'):
+            q = q.lstrip('uid__in:')
+            uids = [uid.strip() for uid in q.split(',')]
+            queryset = queryset.filter(uid__in=uids)
+        else:
+            # Filter requested that we don't understand; make it obvious by
+            # returning nothing
+            return ExportTask.objects.none()
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        if self.request.user.is_anonymous():
+            raise exceptions.NotAuthenticated()
+
+        # Read valid options from POST data
+        valid_options = (
+            'type',
+            'source',
+            'group_sep',
+            'lang',
+            'hierarchy_in_labels',
+            'fields_from_all_versions',
+        )
+        task_data = {}
+        for opt in valid_options:
+            opt_val = request.POST.get(opt, None)
+            if opt_val is not None:
+                task_data[opt] = opt_val
+        # Complain if no source was specified
+        if not task_data.get('source', False):
+            raise exceptions.ValidationError(
+                {'source': 'This field is required.'})
+        # Get the source object
+        source_type, source = _resolve_url_to_asset_or_collection(
+            task_data['source'])
+        # Complain if it's not an Asset
+        if source_type != 'asset':
+            raise exceptions.ValidationError(
+                {'source': 'This field must specify an asset.'})
+        # Complain if it's not deployed
+        if not source.has_deployment:
+            raise exceptions.ValidationError(
+                {'source': 'The specified asset must be deployed.'})
+        # Create a new export task
+        export_task = ExportTask.objects.create(user=request.user,
+                                                data=task_data)
+        # Have Celery run the export in the background
+        export_in_background.delay(export_task_uid=export_task.uid)
+        return Response({
+            'uid': export_task.uid,
+            'url': reverse(
+                'exporttask-detail',
+                kwargs={'uid': export_task.uid},
+                request=request),
+            'status': ExportTask.PROCESSING
+        }, status.HTTP_201_CREATED)
 
 
 class AssetSnapshotViewSet(NoUpdateModelViewSet):
@@ -552,6 +652,7 @@ class SubmissionViewSet(NestedViewSetMixin, viewsets.ViewSet,
     KoBoCAT
     '''
     parent_model = Asset
+
 
 class AssetVersionViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
     model = AssetVersion
@@ -779,6 +880,24 @@ class AssetViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
             # coerced to a dict
             return Response(dict(serializer.data))
 
+    @detail_route(methods=["PATCH"], renderer_classes=[renderers.JSONRenderer])
+    def permissions(self, request, uid):
+        target_asset = self.get_object()
+        source_asset = get_object_or_404(Asset, uid=request.data.get("clone_from"))
+        user = request.user
+        response = {}
+        http_status = status.HTTP_204_NO_CONTENT
+
+        if user.has_perm('share_asset', target_asset) and \
+            user.has_perm('view_asset', source_asset):
+            if not target_asset.copy_permissions_from(source_asset):
+                http_status = status.HTTP_400_BAD_REQUEST
+                response = {"detail": "Source and destination objects don't seem to have the same type"}
+        else:
+            raise exceptions.PermissionDenied()
+
+        return Response(response, status=http_status)
+
     def perform_create(self, serializer):
         # Check if the user is anonymous. The
         # django.contrib.auth.models.AnonymousUser object doesn't work for
@@ -891,3 +1010,25 @@ class TokenView(APIView):
             token = get_object_or_404(Token, user=user)
             token.delete()
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class EnvironmentView(APIView):
+    ''' GET-only view for certain server-provided configuration data '''
+
+    CONFIGS_TO_EXPOSE = [
+        'TERMS_OF_SERVICE_URL',
+        'PRIVACY_POLICY_URL',
+        'SOURCE_CODE_URL',
+        'SUPPORT_URL',
+        'SUPPORT_EMAIL',
+    ]
+
+    def get(self, request, *args, **kwargs):
+        '''
+        Return the lowercased key and value of each setting in
+        `CONFIGS_TO_EXPOSE`
+        '''
+        return Response({
+            key.lower(): getattr(constance.config, key)
+                for key in self.CONFIGS_TO_EXPOSE
+        })

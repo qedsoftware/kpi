@@ -219,6 +219,12 @@ actions.resources = Reflux.createActions({
   updateAsset: {
     asyncResult: true
   },
+  updateSubmissionValidationStatus: {
+    children: [
+      'completed',
+      'failed'
+    ],
+  },
   notFound: {}
 });
 
@@ -230,6 +236,12 @@ actions.permissions = Reflux.createActions({
     ]
   },
   removePerm: {
+    children: [
+      'completed',
+      'failed'
+    ]
+  },
+  copyPermissionsFrom: {
     children: [
       'completed',
       'failed'
@@ -262,7 +274,13 @@ actions.misc = Reflux.createActions({
       'completed',
       'failed'
     ]
-  }
+  },
+  getServerEnvironment: {
+    children: [
+      'completed',
+      'failed',
+    ]
+  },
 });
 
 
@@ -284,9 +302,15 @@ actions.misc.updateProfile.failed.listen(function(){
   notify(t('failed to update profile'), 'error');
 });
 
+actions.misc.getServerEnvironment.listen(function(){
+  dataInterface.serverEnvironment()
+    .done(actions.misc.getServerEnvironment.completed)
+    .fail(actions.misc.getServerEnvironment.failed);
+});
+
 actions.resources.createImport.listen(function(contents){
   if (contents.base64Encoded) {
-    dataInterface.postCreateBase64EncodedImport(contents)
+    dataInterface.postCreateImport(contents)
       .done(actions.resources.createImport.completed)
       .fail(actions.resources.createImport.failed);
   } else if (contents.content) {
@@ -329,10 +353,8 @@ actions.resources.listTags.listen(function(data){
 });
 
 actions.resources.listTags.completed.listen(function(results){
-  if (results.next) {
-    if (window.trackJs) {
-      window.trackJs.track('MAX_TAGS_EXCEEDED: Too many tags');
-    }
+  if (results.next && window.Raven) {
+    Raven.captureMessage('MAX_TAGS_EXCEEDED: Too many tags');
   }
 });
 
@@ -404,7 +426,7 @@ actions.resources.deployAsset.failed.listen(function(data, dialog_or_alert){
       msg = t('please check your connection and try again.');
     }
     failure_message = `
-      <p>${replaceSupportEmail(t('if this problem persists, contact support@kobotoolbox.org'))}</p>
+      <p>${replaceSupportEmail(t('if this problem persists, contact help@kobotoolbox.org'))}</p>
       <p>${msg}</p>
     `;
   } else if(!!data.responseJSON.xform_id_string){
@@ -413,7 +435,7 @@ actions.resources.deployAsset.failed.listen(function(data, dialog_or_alert){
     failure_message = `
       <p>${t('your form id was not valid:')}</p>
       <p><pre>${data.responseJSON.xform_id_string}</pre></p>
-      <p>${replaceSupportEmail(t('if this problem persists, contact support@kobotoolbox.org'))}</p>
+      <p>${replaceSupportEmail(t('if this problem persists, contact help@kobotoolbox.org'))}</p>
     `;
   } else if(!!data.responseJSON.detail) {
     failure_message = `
@@ -447,6 +469,12 @@ actions.reports = Reflux.createActions({
       'completed',
       'failed',
     ]
+  },
+  setCustom: {
+    children: [
+      'completed',
+      'failed',
+    ]
   }
 });
 
@@ -455,6 +483,13 @@ actions.reports.setStyle.listen(function(assetId, details){
     report_styles: JSON.stringify(details),
   }).done(actions.reports.setStyle.completed)
     .fail(actions.reports.setStyle.failed);
+});
+
+actions.reports.setCustom.listen(function(assetId, details){
+  dataInterface.patchAsset(assetId, {
+    report_custom: JSON.stringify(details),
+  }).done(actions.reports.setCustom.completed)
+    .fail(actions.reports.setCustom.failed);
 });
 
 actions.resources.createResource.listen(function(details){
@@ -556,6 +591,16 @@ actions.permissions.assignPerm.listen(function(creds){
 });
 actions.permissions.assignPerm.completed.listen(function(val){
   actions.resources.loadAsset({url: val.content_object});
+});
+
+// copies permissions from one asset to other
+actions.permissions.copyPermissionsFrom.listen(function(sourceUid, targetUid) {
+  dataInterface.copyPermissionsFrom(sourceUid, targetUid)
+    .done((response) => {
+      actions.resources.loadAsset({id: targetUid});
+      actions.permissions.copyPermissionsFrom.completed();
+    })
+    .fail(actions.permissions.copyPermissionsFrom.failed);
 });
 
 actions.permissions.removePerm.listen(function(details){
@@ -686,6 +731,15 @@ actions.resources.listQuestionsAndBlocks.listen(function(){
   dataInterface.listQuestionsAndBlocks()
       .done(actions.resources.listAssets.completed)
       .fail(actions.resources.listAssets.failed);
+});
+
+actions.resources.updateSubmissionValidationStatus.listen(function(uid, sid, data){
+  dataInterface.updateSubmissionValidationStatus(uid, sid, data).done((result) => {
+    actions.resources.updateSubmissionValidationStatus.completed(result, sid);
+  }).fail((error)=>{
+    console.error(error);
+    actions.resources.updateSubmissionValidationStatus.failed(error);
+  });
 });
 
 module.exports = actions;

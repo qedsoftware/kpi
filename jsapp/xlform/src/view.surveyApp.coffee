@@ -29,9 +29,10 @@ module.exports = do ->
 
       _s = (i)-> JSON.stringify(i)
       if _s(rIds) isnt _s(elIds)
-        trackJs?.console.log _s(rIds)
-        trackJs?.console.log _s(elIds)
-        trackJs?.console.error("Row model does not match view")
+        Raven?.captureException new Error('Row model does not match view'), extra:
+          rIds: _s(rIds)
+          elIds: _s(elIds)
+
         false
       else
         true
@@ -564,12 +565,13 @@ module.exports = do ->
           $el.insertAfter(prevRowEl)
         else
           $el.appendTo($parentEl)
-
       view
 
     getViewForRow: (row)->
       unless (xlfrv = @__rowViews.get(row.cid))
-        if row.constructor.kls is 'Group'
+        if row.getValue('type') is 'kobomatrix'
+          rv = new $rowView.KoboMatrixView(model: row, ngScope: @ngScope, surveyView: @)
+        else if row.constructor.kls is 'Group'
           rv = new $rowView.GroupView(model: row, ngScope: @ngScope, surveyView: @)
         else if row.get('type').getValue() is 'score'
           rv = new $rowView.ScoreView(model: row, ngScope: @ngScope, surveyView: @)
@@ -597,7 +599,7 @@ module.exports = do ->
       null_top_row = @formEditorEl.find(".survey-editor__null-top-row").removeClass("expanded")
       null_top_row.toggleClass("survey-editor__null-top-row--hidden", !isEmpty)
 
-      
+
       if @features.multipleQuestions
         @activateSortable()
 
@@ -643,7 +645,7 @@ module.exports = do ->
           if parent.constructor.kls == "Group" && parent.rows.length == 0
             parent_view = @__rowViews.get(parent.cid)
             if !parent_view
-              trackJs?.console.error("parent view is not defined", matchingRow.get('name').get('value'))
+              Raven?.captureException("parent view is not defined", matchingRow.get('name').get('value'))
             parent_view._deleteGroup()
         @set_multioptions_label()
 

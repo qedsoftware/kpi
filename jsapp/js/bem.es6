@@ -126,6 +126,7 @@ bem.FormView__button = bem.FormView.__('button', '<button>');
 
 bem.FormView__row = bem.FormView.__('row');
 bem.FormView__cell = bem.FormView.__('cell');
+bem.FormView__column = bem.FormView.__('column');
 
 bem.FormView__banner = bem.FormView.__('banner');
 bem.FormView__link = bem.FormView.__('link', '<a>');
@@ -133,6 +134,10 @@ bem.FormView__secondaryButtons = bem.FormView.__('secondaryButtons');
 bem.FormView__secondaryButton = bem.FormView.__('secondaryButton', '<button>');
 bem.FormView__reportButtons = bem.FormView.__('reportButtons');
 bem.FormView__form = bem.FormView.__('form', '<form>');
+
+bem.FormView__map = bem.FormView.__('map');
+bem.FormView__mapButton = bem.FormView.__('map-button');
+bem.FormView__mapList = bem.FormView.__('map-list');
 
 bem.FormTitle = BEM('form-title');
 bem.FormTitle__name = bem.FormTitle.__('name');
@@ -158,6 +163,7 @@ bem.GraphSettings__radio = bem.GraphSettings.__('radio');
 bem.FormModal = bem('form-modal');
 bem.FormModal__form = bem.FormModal.__('form', '<form>');
 bem.FormModal__item = bem.FormModal.__('item');
+bem.FormModal__group = bem.FormModal.__('group');
 
 bem.PopoverMenu = bem('popover-menu');
 bem.PopoverMenu__content = bem.PopoverMenu.__('content');
@@ -194,6 +200,7 @@ bem.UserRow__avatar = bem.UserRow.__('avatar');
 bem.UserRow__name = bem.UserRow.__('name');
 bem.UserRow__email = bem.UserRow.__('email');
 bem.UserRow__role = bem.UserRow.__('role');
+bem.UserRow__cancel = bem.UserRow.__('cancel');
 
 bem.uiPanel = BEM('ui-panel');
 bem.uiPanel__body = bem.uiPanel.__('body');
