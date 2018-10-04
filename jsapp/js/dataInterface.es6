@@ -57,53 +57,13 @@ var dataInterface;
         data: data
       });
     },
-    listBlocks () {
+    listTemplates () {
       return $ajax({
-        url: `${rootUrl}/assets/?q=asset_type:block`
-      });
-    },
-    listQuestionsAndBlocks() {
-      return $ajax({
-        url: `${rootUrl}/assets/`,
-        data: {
-          q: 'asset_type:question OR asset_type:block'
-        },
-        method: 'GET'
-      });
-    },
-    listSurveys() {
-      return $ajax({
-        url: `${rootUrl}/assets/`,
-        data: {
-          q: 'asset_type:survey'
-        },
-        method: 'GET'
+        url: `${rootUrl}/assets/?q=asset_type:template`
       });
     },
     listCollections () {
       return $.getJSON(`${rootUrl}/collections/?all_public=true`);
-    },
-    listAllAssets () {
-      var d = new $.Deferred();
-      $.when($.getJSON(`${rootUrl}/assets/?parent=`), $.getJSON(`${rootUrl}/collections/?parent=`)).done(function(assetR, collectionR){
-        var assets = assetR[0],
-            collections = collectionR[0];
-        var r = {
-          results: [],
-        };
-        var pushItem = function (item){
-          r.results.push(item);
-        };
-        assets.results.forEach(pushItem);
-        collections.results.forEach(pushItem);
-        var sortAtt = 'date_modified';
-        r.results.sort(function(a, b){
-          var ad = a[sortAtt], bd = b[sortAtt];
-          return (ad === bd) ? 0 : ((ad > bd) ? -1 : 1);
-        });
-        d.resolve(r);
-      }).fail(d.fail);
-      return d.promise();
     },
     createAssetSnapshot (data) {
       return $ajax({
@@ -112,6 +72,72 @@ var dataInterface;
         data: data
       });
     },
+
+    /*
+     * external services
+     */
+
+    getHooks(uid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/`,
+        method: 'GET'
+      });
+    },
+    getHook(uid, hookUid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/${hookUid}`,
+        method: 'GET'
+      });
+    },
+    addExternalService(uid, data) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/`,
+        method: 'POST',
+        data: JSON.stringify(data),
+        dataType: 'json',
+        contentType: 'application/json'
+      });
+    },
+    updateExternalService(uid, hookUid, data) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/${hookUid}`,
+        method: 'PATCH',
+        data: JSON.stringify(data),
+        dataType: 'json',
+        contentType: 'application/json'
+      });
+    },
+    deleteExternalService(uid, hookUid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/${hookUid}`,
+        method: 'DELETE'
+      });
+    },
+    getHookLogs(uid, hookUid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/logs/`,
+        method: 'GET'
+      })
+    },
+    getHookLog(uid, hookUid, lid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/logs/${lid}/`,
+        method: 'GET'
+      })
+    },
+    retryExternalServiceLogs(uid, hookUid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/retry/`,
+        method: 'PATCH'
+      })
+    },
+    retryExternalServiceLog(uid, hookUid, lid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/logs/${lid}/retry/`,
+        method: 'PATCH'
+      })
+    },
+
     getReportData (data) {
       let identifierString;
       if (data.identifiers) {
@@ -133,16 +159,13 @@ var dataInterface;
         }
       });
     },
-    cloneAsset ({uid, name, version_id}) {
+    cloneAsset ({uid, name, version_id, new_asset_type}) {
       let data = {
         clone_from: uid,
       };
-      if (name) {
-        data.name = name;
-      }
-      if (version_id) {
-        data.clone_from_version_id = version_id;
-      }
+      if (name) { data.name = name; }
+      if (version_id) { data.clone_from_version_id = version_id; }
+      if (new_asset_type) { data.asset_type = new_asset_type; }
       return $ajax({
         method: 'POST',
         url: `${rootUrl}/assets/`,
@@ -167,7 +190,7 @@ var dataInterface;
     copyPermissionsFrom(sourceUid, targetUid) {
       return $ajax({
         url: `${rootUrl}/assets/${targetUid}/permissions/`,
-        method: "PATCH",
+        method: 'PATCH',
         data: {
           clone_from: sourceUid
         }
@@ -201,29 +224,9 @@ var dataInterface;
       return $ajax({
         url: `${rootUrl}/assets/`,
         data: {
-          q: 'asset_type:question OR asset_type:block'
+          q: 'asset_type:question OR asset_type:block OR asset_type:template'
         },
         method: 'GET'
-      });
-    },
-    assetSearch ({tags, q}) {
-      var params = [];
-      if (tags) {
-        tags.forEach(function(tag){
-          params.push(`tag:${tag}`);
-        });
-      }
-      if (q) {
-        params.push(`(${q})`);
-      }
-      return $ajax({
-        url: `${rootUrl}/assets/?${params.join(' AND ')}`,
-        method: 'GET'
-      });
-    },
-    readCollection ({uid}) {
-      return $ajax({
-        url: `${rootUrl}/collections/${uid}/`
       });
     },
     deleteCollection ({uid}) {
@@ -294,12 +297,20 @@ var dataInterface;
         dataType: 'html'
       });
     },
-    searchAssets (queryString) {
-      return $ajax({
+    searchAssets (searchData) {
+      // override limit
+      searchData.limit = 200;
+      return $.ajax({
         url: `${rootUrl}/assets/`,
-        data: {
-          q: queryString
-        }
+        dataType: 'json',
+        data: searchData,
+        method: 'GET'
+      });
+    },
+    assetsHash () {
+      return $ajax({
+        url: `${rootUrl}/assets/hash/`,
+        method: 'GET'
       });
     },
     createCollection (data) {
@@ -390,7 +401,7 @@ var dataInterface;
     },
     getSubmissions(uid, pageSize=100, page=0, sort=[], fields=[], filter='', count=false) {
       const query = `limit=${pageSize}&start=${page}`;
-      var s = `&sort={"_id":-1}`; // default sort
+      var s = '&sort={"_id":-1}'; // default sort
       var f = '';
       if (sort.length)
         s = sort[0].desc === true ? `&sort={"${sort[0].id}":-1}` : `&sort={"${sort[0].id}":1}`;
@@ -441,6 +452,43 @@ var dataInterface;
         url: `${rootUrl}/assets/${uid}/submissions/${sid}/edit?return_url=false`,
         method: 'GET'
       });
+    },
+    uploadAssetFile(uid, data) {
+      var formData = new FormData();
+      Object.keys(data).forEach(function(key) {
+        formData.append(key, data[key]);
+      });
+
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/files/`,
+        method: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false
+      });
+    },
+    getAssetFiles(uid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/files`,
+        method: 'GET'
+      });
+    },
+    deleteAssetFile(assetUid, uid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${assetUid}/files/${uid}`,
+        method: 'DELETE'
+      });
+    },
+
+    setLanguage(data) {
+      return $ajax({
+        url: `${rootUrl}/i18n/setlang/`,
+        method: 'POST',
+        data: data
+      });
+    },
+    environment() {
+      return $ajax({url: `${rootUrl}/environment/`,method: 'GET'});
     },
     login: (creds)=> {
       return $ajax({ url: `${rootUrl}/api-auth/login/?next=/me/`, data: creds, method: 'POST'});
