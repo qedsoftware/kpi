@@ -85,7 +85,7 @@
     "webfonts-generator": "^0.4.0",
     "webpack": "^4.10.1",
     "webpack-bundle-tracker": "0.4.0-beta",
-    "webpack-cli": "^2.1.4",
+    "webpack-cli": "^3.0.0",
     "webpack-dev-middleware": "3.0.0",
     "webpack-dev-server": "^3.1.4",
     "webpack-hot-middleware": "2.21.2"
