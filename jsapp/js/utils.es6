@@ -120,11 +120,40 @@ const originalSupportEmail = 'help@kobotoolbox.org';
 
 // use this utility function to replace hardcoded email in transifex translations
 export function replaceSupportEmail(str) {
-  return str.replace(originalSupportEmail, supportDetails.email);
+  if (typeof supportDetails !== 'undefined') {
+    return str.replace(originalSupportEmail, supportDetails.email);
+  } else {
+    return str;
+  }
 }
 
 export function currentLang() {
   return cookie.load(LANGUAGE_COOKIE_NAME) || 'en';
+}
+
+export function getLangAsObject(langString) {
+  var lang = {
+    code: '',
+    name: ''
+  };
+  let opening = langString.indexOf('(');
+  let closing = langString.indexOf(')');
+  let langCode = langString.substring(opening + 1, closing);
+
+  if (langCode) {
+    lang.code = langCode;
+    lang.name = langString.substring(0, opening).trim();
+  } else {
+    lang.name = langString;
+  }
+
+  return lang;
+}
+
+export function getLangString(obj) {
+  if (obj.languageName && obj.languageCode) {
+    return `${obj.languageName} (${obj.languageCode})`;
+  }
 }
 
 log.t = function () {
@@ -185,6 +214,12 @@ export function isAValidUrl(url) {
   }
 }
 
+export function checkLatLng(geolocation) {
+  if (geolocation && geolocation[0] && geolocation[1]) return true;
+  else return false;
+}
+
+
 export function validFileTypes() {
   const VALID_ASSET_UPLOAD_FILE_TYPES = [
     '.xls',
@@ -217,7 +252,7 @@ export function koboMatrixParser(params) {
       content.survey[i].type = 'begin_kobomatrix';
       content.survey[i].appearance = 'field-list';
       surveyLength++;
-      content.survey.splice(i + 1, 0, {type: "end_kobomatrix", "$kuid": `/${content.survey[i].$kuid}`});
+      content.survey.splice(i + 1, 0, {type: 'end_kobomatrix', '$kuid': `/${content.survey[i].$kuid}`});
     }
   }
 

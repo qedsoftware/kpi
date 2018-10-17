@@ -3,20 +3,11 @@ $s-gray-row-select-width: 200px;
 $s-gray-row-width: 560px;
 $s-gray-row-spacing: 10px;
 
-.form-view__cell--asset-name {
-  background: #F8F8F8;
-  margin: -30px -35px;
-  margin-bottom: 20px;
-  padding: 20px 30px;
-  font-size: 18px;
-  color: lighten($black, 40%);
-}
-
 .user-row {
   display: flex;
   min-height: 50px;
   max-height: 50px;
-  border-bottom: 1px solid #DDD;
+  border-bottom: 1px solid $cool-lightgray;
   margin-bottom: 5px;
   padding-bottom: 5px;
   padding-top: 5px;

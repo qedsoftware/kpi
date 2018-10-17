@@ -41,6 +41,7 @@ from rest_framework_extensions.mixins import NestedViewSetMixin
 
 import constance
 from taggit.models import Tag
+from private_storage.views import PrivateStorageDetailView
 
 from .filters import KpiAssignedObjectPermissionsFilter
 from .filters import AssetOwnerFilterBackend
@@ -53,6 +54,7 @@ from .models import (
     Asset,
     AssetVersion,
     AssetSnapshot,
+    AssetFile,
     ImportTask,
     ExportTask,
     ObjectPermission,
@@ -63,7 +65,7 @@ from .models import (
 from .models.object_permission import get_anonymous_user, get_objects_for_user
 from .models.authorized_application import ApplicationTokenAuthentication
 from .models.import_export_task import _resolve_url_to_asset_or_collection
-from .model_utils import disable_auto_field_update
+from .model_utils import disable_auto_field_update, remove_string_prefix
 from .permissions import (
     IsOwnerOrReadOnly,
     PostMappedToChangePermission,
@@ -79,6 +81,7 @@ from .serializers import (
     AssetSerializer, AssetListSerializer,
     AssetVersionListSerializer,
     AssetVersionSerializer,
+    AssetFileSerializer,
     AssetSnapshotSerializer,
     SitewideMessageSerializer,
     CollectionSerializer, CollectionListSerializer,
@@ -96,12 +99,12 @@ from .utils.gravatar_url import gravatar_url
 from .utils.kobo_to_xlsform import to_xlsform_structure
 from .utils.ss_structure_to_mdtable import ss_structure_to_mdtable
 from .tasks import import_in_background, export_in_background
+from .constants import CLONE_ARG_NAME, CLONE_FROM_VERSION_ID_ARG_NAME, \
+    COLLECTION_CLONE_FIELDS, ASSET_TYPE_ARG_NAME, CLONE_COMPATIBLE_TYPES, \
+    ASSET_TYPE_TEMPLATE, ASSET_TYPE_SURVEY, ASSET_TYPES
 from deployment_backends.backends import DEPLOYMENT_BACKENDS
 from deployment_backends.kobocat_backend import KobocatDataProxyViewSetMixin
-
-
-CLONE_ARG_NAME = 'clone_from'
-COLLECTION_CLONE_FIELDS = {'name'}
+from kpi.exceptions import BadAssetTypeException
 
 
 @login_required
@@ -201,8 +204,8 @@ class CollectionViewSet(viewsets.ModelViewSet):
     def _clone(self):
         # Clone an existing collection.
         original_uid = self.request.data[CLONE_ARG_NAME]
-        original_collection= get_object_or_404(Collection, uid=original_uid)
-        view_perm= get_perm_name('view', original_collection)
+        original_collection = get_object_or_404(Collection, uid=original_uid)
+        view_perm = get_perm_name('view', original_collection)
         if not self.request.user.has_perm(view_perm, original_collection):
             raise Http404
         else:
@@ -216,7 +219,7 @@ class CollectionViewSet(viewsets.ModelViewSet):
             # Pull any additionally provided parameters/overrides from the
             # request.
             for param in self.request.data:
-                cloned_data[param]= self.request.data[param]
+                cloned_data[param] = self.request.data[param]
             serializer = self.get_serializer(data=cloned_data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
@@ -522,12 +525,12 @@ class ExportTaskViewSet(NoUpdateModelViewSet):
             # No filter requested
             return queryset
         if q.startswith('source:'):
-            q = q.lstrip('source:')
+            q = remove_string_prefix(q, 'source:')
             # This is exceedingly crude... but support for querying inside
             # JSONField not available until Django 1.9
             queryset = queryset.filter(data__contains=q)
         elif q.startswith('uid__in:'):
-            q = q.lstrip('uid__in:')
+            q = remove_string_prefix(q, 'uid__in:')
             uids = [uid.strip() for uid in q.split(',')]
             queryset = queryset.filter(uid__in=uids)
         else:
@@ -645,6 +648,54 @@ class AssetSnapshotViewSet(NoUpdateModelViewSet):
             return Response(response_data, template_name='preview_error.html')
 
 
+class AssetFileViewSet(NestedViewSetMixin, NoUpdateModelViewSet):
+    model = AssetFile
+    lookup_field = 'uid'
+    filter_backends = (RelatedAssetPermissionsFilter,)
+    serializer_class = AssetFileSerializer
+
+    def get_queryset(self):
+        _asset_uid = self.get_parents_query_dict()['asset']
+        _queryset = self.model.objects.filter(asset__uid=_asset_uid)
+        return _queryset
+
+    def perform_create(self, serializer):
+        asset = Asset.objects.get(uid=self.get_parents_query_dict()['asset'])
+        if not self.request.user.has_perm('change_asset', asset):
+            raise exceptions.PermissionDenied()
+        serializer.save(
+            asset=asset,
+            user=self.request.user
+        )
+
+    def perform_destroy(self, *args, **kwargs):
+        asset = Asset.objects.get(uid=self.get_parents_query_dict()['asset'])
+        if not self.request.user.has_perm('change_asset', asset):
+            raise exceptions.PermissionDenied()
+        return super(AssetFileViewSet, self).perform_destroy(*args, **kwargs)
+
+    class PrivateContentView(PrivateStorageDetailView):
+        model = AssetFile
+        model_file_field = 'content'
+        def can_access_file(self, private_file):
+            return private_file.request.user.has_perm(
+                'view_asset', private_file.parent_object.asset)
+
+    @detail_route(methods=['get'])
+    def content(self, *args, **kwargs):
+        view = self.PrivateContentView.as_view(
+            model=AssetFile,
+            slug_url_kwarg='uid',
+            slug_field='uid',
+            model_file_field='content'
+        )
+        af = self.get_object()
+        # TODO: simply redirect if external storage with expiring tokens (e.g.
+        # Amazon S3) is used?
+        #   return HttpResponseRedirect(af.content.url)
+        return view(self.request, uid=af.uid)
+
+
 class SubmissionViewSet(NestedViewSetMixin, viewsets.ViewSet,
                         KobocatDataProxyViewSetMixin):
     '''
@@ -688,18 +739,135 @@ class AssetViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
     """
     * Assign a asset to a collection <span class='label label-warning'>partially implemented</span>
     * Run a partial update of a asset <span class='label label-danger'>TODO</span>
+
+    <span class='label label-danger'>TODO</span> Complete documentation
+
+    ## List of asset endpoints
+
+    Lists the asset endpoints accessible to requesting user, for anonymous access
+    a list of public data endpoints is returned.
+
+    <pre class="prettyprint">
+    <b>GET</b> /assets/
+    </pre>
+
+    > Example
+    >
+    >       curl -X GET https://[kpi-url]/assets/
+
+    ## CRUD
+
+    * `uid` - is the unique identifier of a specific asset
+
+    Retrieves current asset
+    <pre class="prettyprint">
+    <b>GET</b> /assets/<code>{uid}</code>/
+    </pre>
+
+
+    > Example
+    >
+    >       curl -X GET https://[kpi-url]/assets/aSAvYreNzVEkrWg5Gdcvg/
+
+    Creates or clones an asset.
+    <pre class="prettyprint">
+    <b>POST</b> /assets/
+    </pre>
+
+
+    > Example
+    >
+    >       curl -X POST https://[kpi-url]/assets/
+
+
+    > **Payload to create a new asset**
+    >
+    >        {
+    >           "name": {string},
+    >           "settings": {
+    >               "description": {string},
+    >               "sector": {string},
+    >               "country": {string},
+    >               "share-metadata": {boolean}
+    >           },
+    >           "asset_type": {string}
+    >        }
+
+    > **Payload to clone an asset**
+    >
+    >       {
+    >           "clone_from": {string},
+    >           "name": {string},
+    >           "asset_type": {string}
+    >       }
+
+    where `asset_type` must be one of these values:
+
+    * block (can be cloned to `block`, `question`, `survey`, `template`)
+    * question (can be cloned to `question`, `survey`, `template`)
+    * survey (can be cloned to `block`, `question`, `survey`, `template`)
+    * template (can be cloned to `survey`, `template`)
+
+    Settings are cloned only when type of assets are `survey` or `template`.
+    In that case, `share-metadata` is not preserved.
+
+    When creating a new `block` or `question` asset, settings are not saved either.
+
+    ### Deployment
+
+    Retrieves the existing deployment, if any.
+    <pre class="prettyprint">
+    <b>GET</b> /assets/{uid}/deployment
+    </pre>
+
+    > Example
+    >
+    >       curl -X GET https://[kpi-url]/assets/aSAvYreNzVEkrWg5Gdcvg/deployment
+
+    Creates a new deployment, but only if a deployment does not exist already.
+    <pre class="prettyprint">
+    <b>POST</b> /assets/{uid}/deployment
+    </pre>
+
+    > Example
+    >
+    >       curl -X POST https://[kpi-url]/assets/aSAvYreNzVEkrWg5Gdcvg/deployment
+
+    Updates the `active` field of the existing deployment.
+    <pre class="prettyprint">
+    <b>PATCH</b> /assets/{uid}/deployment
+    </pre>
+
+    > Example
+    >
+    >       curl -X PATCH https://[kpi-url]/assets/aSAvYreNzVEkrWg5Gdcvg/deployment
+
+    Overwrites the entire deployment, including the form contents, but does not change the deployment's identifier
+    <pre class="prettyprint">
+    <b>PUT</b> /assets/{uid}/deployment
+    </pre>
+
+    > Example
+    >
+    >       curl -X PUT https://[kpi-url]/assets/aSAvYreNzVEkrWg5Gdcvg/deployment
+
+
+    ### Permissions
+    Updates permissions of the specific asset
+    <pre class="prettyprint">
+    <b>PATCH</b> /assets/{uid}/permissions
+    </pre>
+
+    > Example
+    >
+    >       curl -X PATCH https://[kpi-url]/assets/aSAvYreNzVEkrWg5Gdcvg/permissions
+
+    ### CURRENT ENDPOINT
     """
+
     # Filtering handled by KpiObjectPermissionsFilter.filter_queryset()
-    queryset = Asset.objects.select_related(
-        'owner', 'parent'
-    ).prefetch_related(
-        'permissions',
-        'permissions__permission',
-        'permissions__user',
-        'permissions__content_object',
-        # Getting the tag_string is making one query per object, but
-        # prefetch_related doesn't seem to help
-    ).all()
+    queryset = Asset.objects.all()
+
     serializer_class = AssetSerializer
     lookup_field = 'uid'
     permission_classes = (IsOwnerOrReadOnly,)
@@ -719,21 +887,24 @@ class AssetViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
             return AssetSerializer
 
     def get_queryset(self, *args, **kwargs):
-        ''' Really temporary way to exclude a taxing field from the database
-        query when the request instructs us to do so. '''
         queryset = super(AssetViewSet, self).get_queryset(*args, **kwargs)
-        # See also AssetSerializer.get_fields()
-        excludes = self.request.GET.get('exclude', '')
-        excludes = excludes.split(',')
-        if 'content' in excludes:
-            queryset = queryset.defer('content')
-        return queryset
+        if self.action == 'list':
+            return queryset.model.optimize_queryset_for_list(queryset)
+        else:
+            # This is called to retrieve an individual record. How much do we
+            # have to care about optimizations for that?
+            return queryset
 
-    def _get_clone_serializer(self):
+    def _get_clone_serializer(self, current_asset=None):
+        """
+        Gets the serializer from cloned object
+        :param current_asset: Asset. Asset to be updated.
+        :return: AssetSerializer
+        """
         original_uid = self.request.data[CLONE_ARG_NAME]
         original_asset = get_object_or_404(Asset, uid=original_uid)
-        if 'clone_from_version_id' in self.request.data:
-            original_version_id = self.request.data['clone_from_version_id']
+        if CLONE_FROM_VERSION_ID_ARG_NAME in self.request.data:
+            original_version_id = self.request.data.get(CLONE_FROM_VERSION_ID_ARG_NAME)
             source_version = get_object_or_404(
                 original_asset.asset_versions, uid=original_version_id)
         else:
@@ -742,17 +913,81 @@ class AssetViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
         view_perm = get_perm_name('view', original_asset)
         if not self.request.user.has_perm(view_perm, original_asset):
             raise Http404
-        # TODO: Duplicate permissions if a user is cloning their own asset.
-        cloned_data = original_asset.to_clone_dict(version_uid=source_version.uid)
-        for key, val in self.request.data.iteritems():
+
+        partial_update = isinstance(current_asset, Asset)
+        cloned_data = self._prepare_cloned_data(original_asset, source_version, partial_update)
+        if partial_update:
+            return self.get_serializer(current_asset, data=cloned_data, partial=True)
+        else:
+            return self.get_serializer(data=cloned_data)
+
+    def _prepare_cloned_data(self, original_asset, source_version, partial_update):
+        """
+        Some business rules must be applied when cloning an asset to another with a different type.
+        It prepares the data to be cloned accordingly.
+
+        It raises an exception if source and destination are not compatible for cloning.
+
+        :param original_asset: Asset
+        :param source_version: AssetVersion
+        :param partial_update: Boolean
+        :return: dict
+        """
+        if self._validate_destination_type(original_asset):
+            cloned_data = original_asset.to_clone_dict(version=source_version)
+
+            # Merge cloned_data with user's request data.
             cloned_data.update(self.request.data.items())
-        # until we get content passed as a dict, transform the content obj to a str
-        cloned_data['content'] = json.dumps(cloned_data['content'])
-        return self.get_serializer(data=cloned_data)
+
+            if partial_update:
+                # Because we're updating an asset from another which can have another type,
+                # we need to remove `asset_type` from clone data to ensure it's not updated
+                # when serializer is initialized.
+                cloned_data.pop("asset_type", None)
+            else:
+                # Change asset_type if needed.
+                cloned_data["asset_type"] = self.request.data.get(ASSET_TYPE_ARG_NAME, original_asset.asset_type)
+
+            cloned_asset_type = cloned_data.get("asset_type")
+            # Settings are: Country, Description, Sector and Share-metadata
+            # Copy settings only when original_asset is `survey` or `template`
+            # and `asset_type` property of `cloned_data` is `survey` or `template`
+            # or None (partial_update)
+            if cloned_asset_type in [None, ASSET_TYPE_TEMPLATE, ASSET_TYPE_SURVEY] and \
+                original_asset.asset_type in [ASSET_TYPE_TEMPLATE, ASSET_TYPE_SURVEY]:
+
+                settings = original_asset.settings
+                settings.pop("share-metadata", None)
+                cloned_data.update({"settings": json.dumps(settings)})
+
+            # until we get content passed as a dict, transform the content obj to a str
+            # TODO, verify whether `Asset.content.settings.id_string` should be cleared out.
+            cloned_data["content"] = json.dumps(cloned_data.get("content"))
+            return cloned_data
+        else:
+            raise BadAssetTypeException("Destination type is not compatible with source type")
+
+    def _validate_destination_type(self, original_asset_):
+        """
+        Validates if destination asset can be cloned from source asset.
+        :param original_asset_ Asset: Source
+        :return: Boolean
+        """
+        is_valid = True
+
+        if CLONE_ARG_NAME in self.request.data and ASSET_TYPE_ARG_NAME in self.request.data:
+            destination_type = self.request.data.get(ASSET_TYPE_ARG_NAME)
+            if destination_type in dict(ASSET_TYPES).values():
+                source_type = original_asset_.asset_type
+                is_valid = destination_type in CLONE_COMPATIBLE_TYPES.get(source_type)
+            else:
+                is_valid = False
+
+        return is_valid
 
     def create(self, request, *args, **kwargs):
         if CLONE_ARG_NAME in request.data:
-            serializer= self._get_clone_serializer()
+            serializer = self._get_clone_serializer()
         else:
             serializer = self.get_serializer(data=request.data)
 
@@ -848,42 +1083,51 @@ class AssetViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
                 # coerced to a dict
                 return Response(dict(serializer.data))
         elif request.method == 'POST':
-            if asset.has_deployment:
-                raise exceptions.MethodNotAllowed(
-                    method=request.method,
-                    detail='Use PATCH to update an existing deployment'
-                    )
-            serializer = DeploymentSerializer(
-                data=request.data,
-                context={'asset': asset}
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            # TODO: Understand why this 404s when `serializer.data` is not
-            # coerced to a dict
-            return Response(dict(serializer.data))
-        elif request.method == 'PATCH':
-            if not asset.has_deployment:
-                raise exceptions.MethodNotAllowed(
-                    method=request.method,
-                    detail='Use POST to create a new deployment'
+            if not asset.can_be_deployed:
+                raise BadAssetTypeException("Only surveys may be deployed, but this asset is a {}".format(
+                    self.asset_type))
+            else:
+                if asset.has_deployment:
+                    raise exceptions.MethodNotAllowed(
+                        method=request.method,
+                        detail='Use PATCH to update an existing deployment'
+                        )
+                serializer = DeploymentSerializer(
+                    data=request.data,
+                    context={'asset': asset}
                 )
-            serializer = DeploymentSerializer(
-                asset.deployment,
-                data=request.data,
-                context={'asset': asset},
-                partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            # TODO: Understand why this 404s when `serializer.data` is not
-            # coerced to a dict
-            return Response(dict(serializer.data))
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                # TODO: Understand why this 404s when `serializer.data` is not
+                # coerced to a dict
+                return Response(dict(serializer.data))
+
+        elif request.method == 'PATCH':
+            if not asset.can_be_deployed:
+                raise BadAssetTypeException("Only surveys may be deployed, but this asset is a {}".format(
+                    self.asset_type))
+            else:
+                if not asset.has_deployment:
+                    raise exceptions.MethodNotAllowed(
+                        method=request.method,
+                        detail='Use POST to create a new deployment'
+                    )
+                serializer = DeploymentSerializer(
+                    asset.deployment,
+                    data=request.data,
+                    context={'asset': asset},
+                    partial=True
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                # TODO: Understand why this 404s when `serializer.data` is not
+                # coerced to a dict
+                return Response(dict(serializer.data))
 
     @detail_route(methods=["PATCH"], renderer_classes=[renderers.JSONRenderer])
     def permissions(self, request, uid):
         target_asset = self.get_object()
-        source_asset = get_object_or_404(Asset, uid=request.data.get("clone_from"))
+        source_asset = get_object_or_404(Asset, uid=request.data.get(CLONE_ARG_NAME))
         user = request.user
         response = {}
         http_status = status.HTTP_204_NO_CONTENT
@@ -906,6 +1150,18 @@ class AssetViewSet(NestedViewSetMixin, viewsets.ModelViewSet):
         if user.is_anonymous():
             user = get_anonymous_user()
         serializer.save(owner=user)
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        if CLONE_ARG_NAME in request.data:
+            serializer = self._get_clone_serializer(instance)
+        else:
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
 
     def perform_destroy(self, instance):
         if hasattr(instance, 'has_deployment') and instance.has_deployment:

@@ -8,7 +8,7 @@ import {
 } from './utils';
 
 var Reflux = require('reflux');
-import RefluxPromise from "./libs/reflux-promise";
+import RefluxPromise from './libs/reflux-promise';
 Reflux.use(RefluxPromise(window.Promise));
 
 var actions = {};
@@ -17,9 +17,7 @@ var actions = {};
 actions.navigation = Reflux.createActions([
     'transitionStart',
     'transitionEnd',
-    'historyPush',
     'routeUpdate',
-
     'documentTitleUpdate'
   ]);
 
@@ -46,6 +44,12 @@ actions.auth = Reflux.createActions({
     ]
   },
   changePassword: {
+    children: [
+      'completed',
+      'failed'
+    ]
+  },
+  getEnvironment: {
     children: [
       'completed',
       'failed'
@@ -109,12 +113,6 @@ actions.resources = Reflux.createActions({
     ]
   },
   listCollections: {
-    children: [
-      'completed',
-      'failed'
-    ]
-  },
-  listQuestionsAndBlocks: {
     children: [
       'completed',
       'failed'
@@ -225,6 +223,12 @@ actions.resources = Reflux.createActions({
       'failed'
     ],
   },
+  getAssetFiles: {
+    children: [
+      'completed',
+      'failed'
+    ],
+  },
   notFound: {}
 });
 
@@ -290,16 +294,37 @@ actions.misc.checkUsername.listen(function(username){
     .fail(actions.misc.checkUsername.failed_);
 });
 
-actions.misc.updateProfile.listen(function(data){
+actions.misc.updateProfile.listen(function(data, callbacks={}){
   dataInterface.patchProfile(data)
-    .done(actions.misc.updateProfile.completed)
-    .fail(actions.misc.updateProfile.failed);
+    .done((...args) => {
+      actions.misc.updateProfile.completed(...args)
+      if (callbacks.onComplete) {
+        callbacks.onComplete(...args);
+      }
+    })
+    .fail((...args) => {
+      actions.misc.updateProfile.failed(...args)
+      if (callbacks.onFail) {
+        callbacks.onFail(...args);
+      }
+    });
 });
 actions.misc.updateProfile.completed.listen(function(){
   notify(t('updated profile successfully'));
 });
-actions.misc.updateProfile.failed.listen(function(){
-  notify(t('failed to update profile'), 'error');
+actions.misc.updateProfile.failed.listen(function(data) {
+  let hadFieldsErrors = false;
+  for (const [errorProp, errorValue] of Object.entries(data.responseJSON)){
+    if (errorProp !== 'non_fields_error') {
+      hadFieldsErrors = true;
+    }
+  }
+
+  if (hadFieldsErrors) {
+    notify(t('Some fields contain errors'), 'error');
+  } else {
+    notify(t('failed to update profile'), 'error');
+  }
 });
 
 actions.misc.getServerEnvironment.listen(function(){
@@ -358,14 +383,20 @@ actions.resources.listTags.completed.listen(function(results){
   }
 });
 
-actions.resources.updateAsset.listen(function(uid, values){
+actions.resources.updateAsset.listen(function(uid, values, params={}) {
   dataInterface.patchAsset(uid, values)
     .done(function(asset){
       actions.resources.updateAsset.completed(asset);
+      if (params.onComplete) {
+        params.onComplete(asset);
+      }
       notify(t('successfully updated'));
     })
     .fail(function(resp){
       actions.resources.updateAsset.failed(resp);
+      if (params.onFailed) {
+        params.onFailed(resp);
+      }
     });
 });
 
@@ -463,6 +494,14 @@ actions.resources.setDeploymentActive.listen(
   }
 );
 
+actions.resources.getAssetFiles.listen(function(assetId) {
+  dataInterface
+    .getAssetFiles(assetId)
+    .done(actions.resources.getAssetFiles.completed)
+    .fail(actions.resources.getAssetFiles.failed);
+});
+
+
 actions.reports = Reflux.createActions({
   setStyle: {
     children: [
@@ -492,6 +531,39 @@ actions.reports.setCustom.listen(function(assetId, details){
     .fail(actions.reports.setCustom.failed);
 });
 
+actions.table = Reflux.createActions({
+  updateSettings: {
+    children: [
+      'completed',
+      'failed',
+    ]
+  }
+});
+
+actions.table.updateSettings.listen(function(assetId, settings){
+  dataInterface.patchAsset(assetId, {
+    settings: JSON.stringify(settings),
+  }).done(actions.table.updateSettings.completed)
+    .fail(actions.table.updateSettings.failed);
+});
+
+
+actions.map = Reflux.createActions({
+  setMapSettings: {
+    children: ['completed', 'failed']
+  }
+});
+
+actions.map.setMapSettings.listen(function(assetId, details) {
+  dataInterface
+    .patchAsset(assetId, {
+      map_styles: JSON.stringify(details)
+    })
+    .done(actions.map.setMapSettings.completed)
+    .fail(actions.map.setMapSettings.failed);
+});
+
+
 actions.resources.createResource.listen(function(details){
   dataInterface.createResource(details)
     .done(function(asset){
@@ -514,7 +586,13 @@ actions.resources.deleteAsset.listen(function(details, params={}){
         onComplete(details);
       }
     })
-    .fail(actions.resources.deleteAsset.failed);
+    .fail((err) => {
+      actions.resources.deleteAsset.failed(details);
+      alertify.alert(
+        t('Unable to delete asset!'),
+        `<p>${t('Error details:')}</p><pre style='max-height: 200px;'>${err.responseText}</pre>`
+      );
+    });
 });
 
 actions.resources.readCollection.listen(function(details){
@@ -679,6 +757,17 @@ actions.auth.changePassword.failed.listen(() => {
   notify(t('failed to change password'), 'error');
 });
 
+actions.auth.getEnvironment.listen(function(){
+  dataInterface.environment()
+    .done((data)=>{
+      actions.auth.getEnvironment.completed(data);
+    })
+    .fail(actions.auth.getEnvironment.failed);
+});
+actions.auth.getEnvironment.failed.listen(() => {
+  notify(t('failed to load environment data'), 'error');
+});
+
 actions.resources.loadAsset.listen(function(params){
   var dispatchMethodName;
   if (params.url) {
@@ -694,10 +783,6 @@ actions.resources.loadAsset.listen(function(params){
   dataInterface[dispatchMethodName](params)
       .done(actions.resources.loadAsset.completed)
       .fail(actions.resources.loadAsset.failed);
-});
-
-actions.resources.loadAsset.completed.listen(function(asset){
-  actions.navigation.historyPush(asset);
 });
 
 actions.resources.loadAssetContent.listen(function(params){
@@ -725,12 +810,6 @@ actions.resources.listCollections.listen(function(){
   dataInterface.listCollections()
       .done(actions.resources.listCollections.completed)
       .fail(actions.resources.listCollections.failed);
-});
-
-actions.resources.listQuestionsAndBlocks.listen(function(){
-  dataInterface.listQuestionsAndBlocks()
-      .done(actions.resources.listAssets.completed)
-      .fail(actions.resources.listAssets.failed);
 });
 
 actions.resources.updateSubmissionValidationStatus.listen(function(uid, sid, data){
