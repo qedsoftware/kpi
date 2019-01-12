@@ -1,7 +1,8 @@
+# vim: syntax=dockerfile:
 # Base image to take care of `apt`, `pip`, and `npm` dependencies. Packages are
 #   stored outside the source directory so it can be overwritten in development scenarios.
 
-FROM kobotoolbox/base-kobos:latest
+FROM qeddockerhub/base-kobos:latest
 
 
 ENV KPI_SRC_DIR=/srv/src/kpi \
