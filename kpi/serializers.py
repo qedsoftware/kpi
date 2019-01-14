@@ -14,7 +14,7 @@ from django.db.utils import ProgrammingError
 from django.utils.six.moves.urllib import parse as urlparse
 from django.conf import settings
 from rest_framework import serializers, exceptions
-from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.pagination import LimitOffsetPagination, PageNumberPagination
 from rest_framework.reverse import reverse_lazy, reverse
 from taggit.models import Tag
 
@@ -49,6 +49,13 @@ class Paginated(LimitOffsetPagination):
 
     def get_parent_url(self, obj):
         return reverse_lazy('api-root', request=self.context.get('request'))
+
+
+class TinyPaginated(PageNumberPagination):
+    """
+    Same as Paginated with a small page size
+    """
+    page_size = 50
 
 
 class WritableJSONField(serializers.Field):
@@ -440,6 +447,7 @@ class AssetVersionListSerializer(serializers.Serializer):
     # `select_related()` calls  in `AssetVersionViewSet.get_queryset()`
     uid = serializers.ReadOnlyField()
     url = serializers.SerializerMethodField()
+    content_hash = serializers.ReadOnlyField()
     date_deployed = serializers.SerializerMethodField(read_only=True)
     date_modified = serializers.CharField(read_only=True)
 
@@ -466,6 +474,7 @@ class AssetVersionSerializer(AssetVersionListSerializer):
                     'version_id',
                     'date_deployed',
                     'date_modified',
+                    'content_hash',
                     'content',
                   )
 
@@ -502,6 +511,7 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
     permissions = ObjectPermissionNestedSerializer(many=True, read_only=True)
     tag_string = serializers.CharField(required=False, allow_blank=True)
     version_id = serializers.CharField(read_only=True)
+    version__content_hash = serializers.CharField(read_only=True)
     has_deployment = serializers.ReadOnlyField()
     deployed_version_id = serializers.SerializerMethodField()
     deployed_versions = PaginatedApiField(
@@ -515,6 +525,9 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
     deployment__links = serializers.SerializerMethodField()
     deployment__data_download_links = serializers.SerializerMethodField()
     deployment__submission_count = serializers.SerializerMethodField()
+
+    # Only add link instead of hooks list to avoid multiple access to DB.
+    hooks_link = serializers.SerializerMethodField()
 
     class Meta:
         model = Asset
@@ -530,6 +543,7 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
                   'summary',
                   'date_modified',
                   'version_id',
+                  'version__content_hash',
                   'version_count',
                   'has_deployment',
                   'deployed_version_id',
@@ -548,6 +562,7 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
                   'embeds',
                   'koboform_link',
                   'xform_link',
+                  'hooks_link',
                   'tag_string',
                   'uid',
                   'kind',
@@ -608,6 +623,9 @@ class AssetSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_xform_link(self, obj):
         return reverse('asset-xform', args=(obj.uid,), request=self.context.get('request', None))
+
+    def get_hooks_link(self, obj):
+        return reverse('hook-list', args=(obj.uid,), request=self.context.get('request', None))
 
     def get_embeds(self, obj):
         request = self.context.get('request', None)
@@ -705,6 +723,7 @@ class DeploymentSerializer(serializers.Serializer):
     identifier = serializers.CharField(read_only=True)
     active = serializers.BooleanField(required=False)
     version_id = serializers.CharField(required=False)
+    asset = serializers.SerializerMethodField()
 
     @staticmethod
     def _raise_unless_current_version(asset, validated_data):
@@ -714,6 +733,10 @@ class DeploymentSerializer(serializers.Serializer):
                 validated_data['version_id'] != str(asset.version_id):
             raise NotImplementedError(
                 'Only the current version_id can be deployed')
+
+    def get_asset(self, obj):
+        asset = self.context['asset']
+        return AssetSerializer(asset, context=self.context).data
 
     def create(self, validated_data):
         asset = self.context['asset']

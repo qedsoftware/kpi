@@ -78,7 +78,7 @@ export class ProjectDownloads extends React.Component {
       let url = this.props.asset.deployment__data_download_links[
         this.state.type
       ];
-      if (this.state.type == 'xls' || this.state.type == 'csv') {
+      if (['xls', 'csv', 'spss_labels'].includes(this.state.type)) {
         url = `${dataInterface.rootUrl}/exports/`; // TODO: have the backend pass the URL in the asset
         let postData = {
           source: this.props.asset.url,
@@ -159,6 +159,25 @@ export class ProjectDownloads extends React.Component {
     dataInterface.getAssetExports(this.props.asset.uid).done((data)=>{
       if (data.count > 0) {
         data.results.reverse();
+        data.results.map(result => {
+          switch(result.data.lang) {
+            case '_default':
+            case null: // The value of `formpack.constants.UNTRANSLATED`,
+                       // which shouldn't be revealed here, but just in case...
+              result.data.langDescription = t('Default');
+              break;
+            case '_xml':
+            case false: // `formpack.constants.UNSPECIFIED_TRANSLATION`
+              // Exports previously used `xml` (no underscore) for this, which
+              // works so long as the form has no language called `xml`. In
+              // reality, we shouldn't bank on that:
+              // https://en.wikipedia.org/wiki/Malaysian_Sign_Language
+              result.data.langDescription = t('XML');
+              break;
+            default:
+              result.data.langDescription = result.data.lang;
+          }
+        });
         this.setState({exports: data.results});
 
         // Start a polling Interval if there is at least one export is not yet complete
@@ -226,42 +245,44 @@ export class ProjectDownloads extends React.Component {
                         <option value='spss_labels'>{t('SPSS Labels')}</option>
                       </select>
                     </bem.FormModal__item>
-                  , this.state.type == 'xls' || this.state.type == 'csv' ? [
-                      <bem.FormModal__item key={'x'} m='export-format'>
-                        <label htmlFor='lang'>{t('Value and header format')}</label>
-                        <select name='lang' value={this.state.lang}
-                            onChange={this.langChange}>
-                          <option value='xml'>{t('XML values and headers')}</option>
-                          { translations.length < 2 &&
-                            <option value='_default'>{t('Labels')}</option>
-                          }
-                          {
-                            translations && translations.map((t, i) => {
-                              if (t) {
-                                return <option value={t} key={i}>{t}</option>;
-                              }
-                            })
-                          }
-                        </select>
-                      </bem.FormModal__item>,
-                      <bem.FormModal__item key={'h'} m='export-group-headers'>
-                        <input type='checkbox' id='hierarchy_in_labels'
-                          value={this.state.hierInLabels}
-                          onChange={this.hierInLabelsChange}
-                        />
-                        <label htmlFor='hierarchy_in_labels'>
-                          {t('Include groups in headers')}
-                        </label>
-                      </bem.FormModal__item>,
-                      this.state.hierInLabels ?
-                        <bem.FormModal__item key={'g'}>
-                          <label htmlFor='group_sep'>{t('Group separator')}</label>
-                          <input type='text' name='group_sep'
-                            value={this.state.groupSep}
-                            onChange={this.groupSepChange}
+                  , ['xls', 'csv', 'spss_labels'].includes(this.state.type) ? [
+                      ['xls', 'csv'].includes(this.state.type) ? [
+                        <bem.FormModal__item key={'x'} m='export-format'>
+                          <label htmlFor='lang'>{t('Value and header format')}</label>
+                          <select name='lang' value={this.state.lang}
+                              onChange={this.langChange}>
+                            <option value='_xml'>{t('XML values and headers')}</option>
+                            { translations.length < 2 &&
+                              <option value='_default'>{t('Labels')}</option>
+                            }
+                            {
+                              translations && translations.map((t, i) => {
+                                if (t) {
+                                  return <option value={t} key={i}>{t}</option>;
+                                }
+                              })
+                            }
+                          </select>
+                        </bem.FormModal__item>,
+                        <bem.FormModal__item key={'h'} m='export-group-headers'>
+                          <input type='checkbox' id='hierarchy_in_labels'
+                            value={this.state.hierInLabels}
+                            onChange={this.hierInLabelsChange}
                           />
-                        </bem.FormModal__item>
-                      : null,
+                          <label htmlFor='hierarchy_in_labels'>
+                            {t('Include groups in headers')}
+                          </label>
+                        </bem.FormModal__item>,
+                        this.state.hierInLabels ?
+                          <bem.FormModal__item key={'g'}>
+                            <label htmlFor='group_sep'>{t('Group separator')}</label>
+                            <input type='text' name='group_sep'
+                              value={this.state.groupSep}
+                              onChange={this.groupSepChange}
+                            />
+                          </bem.FormModal__item>
+                        : null,
+                      ] : null,
                       dvcount > 1 ?
                         <bem.FormModal__item key={'v'} m='export-fields-from-all-versions'>
                           <input type='checkbox' id='fields_from_all_versions'
@@ -312,13 +333,13 @@ export class ProjectDownloads extends React.Component {
                       <bem.FormView__group m='items' key={item.uid}
                         className={timediff < 45 ? 'recent' : ''}>
                         <bem.FormView__label m='type'>
-                          {item.data.type}
+                          {item.data.type == 'spss_labels' ? 'spss' : item.data.type}
                         </bem.FormView__label>
                         <bem.FormView__label m='date'>
                           {formatTime(item.date_created)}
                         </bem.FormView__label>
                         <bem.FormView__label m='lang'>
-                        {item.data.lang === '_default' ? t('Default') : item.data.lang}
+                          {item.data.langDescription}
                         </bem.FormView__label>
                         <bem.FormView__label m='include-groups'>
                           {item.data.hierarchy_in_labels === 'false' ? t('No') : t('Yes')}
