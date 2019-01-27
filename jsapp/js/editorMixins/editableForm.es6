@@ -14,6 +14,7 @@ import alertify from 'alertifyjs';
 import ProjectSettings from '../components/modalForms/projectSettings';
 import {
   surveyToValidJson,
+  unnullifyTranslations,
   notify,
   assign,
   t,
@@ -167,9 +168,13 @@ class FormSettingsBox extends React.Component {
   }
 };
 
+const ASIDE_CACHE_NAME = 'kpi.editable-form.aside';
+
 export default assign({
   componentDidMount() {
     document.body.classList.add('hide-edge');
+
+    this.loadAsideSettings();
 
     if (this.state.editorState === 'existing') {
       let uid = this.props.params.assetid;
@@ -199,6 +204,17 @@ export default assign({
     this.unpreventClosingTab();
   },
 
+  loadAsideSettings() {
+    const asideSettings = sessionStorage.getItem(ASIDE_CACHE_NAME);
+    if (asideSettings) {
+      this.setState(JSON.parse(asideSettings));
+    }
+  },
+
+  saveAsideSettings(asideSettings) {
+    sessionStorage.setItem(ASIDE_CACHE_NAME, JSON.stringify(asideSettings));
+  },
+
   onFormSettingsBoxChange() {
     this.onSurveyChange();
   },
@@ -226,6 +242,12 @@ export default assign({
       settings__style: settingsStyle
     });
     this.onSurveyChange();
+  },
+
+  getStyleSelectVal(optionVal) {
+    return _.find(AVAILABLE_FORM_STYLES, (option) => {
+      return option.value === optionVal;
+    });
   },
 
   onSurveyChange: _.debounce(function () {
@@ -287,9 +309,11 @@ export default assign({
     if (this.state.name)
       this.app.survey.settings.set('title', this.state.name);
 
-    var params = {
-      source: surveyToValidJson(this.app.survey),
-    };
+    let surveyJSON = surveyToValidJson(this.app.survey)
+    if (this.state.asset) {
+      surveyJSON = unnullifyTranslations(surveyJSON, this.state.asset.content);
+    }
+    let params = {source: surveyJSON};
 
     params = koboMatrixParser(params);
 
@@ -323,9 +347,11 @@ export default assign({
       this.app.survey.settings.set('style', this.state.settings__style);
     }
 
-    let params = {
-      content: surveyToValidJson(this.app.survey),
-    };
+    let surveyJSON = surveyToValidJson(this.app.survey)
+    if (this.state.asset) {
+      surveyJSON = unnullifyTranslations(surveyJSON, this.state.asset.content);
+    }
+    let params = {content: surveyJSON};
 
     if (this.state.name) {
       params.name = this.state.name;
@@ -454,18 +480,22 @@ export default assign({
 
   toggleAsideLibrarySearch(evt) {
     evt.target.blur();
-    this.setState({
+    const asideSettings = {
       asideLayoutSettingsVisible: false,
       asideLibrarySearchVisible: !this.state.asideLibrarySearchVisible,
-    });
+    };
+    this.setState(asideSettings);
+    this.saveAsideSettings(asideSettings);
   },
 
   toggleAsideLayoutSettings(evt) {
     evt.target.blur();
-    this.setState({
+    const asideSettings = {
       asideLayoutSettingsVisible: !this.state.asideLayoutSettingsVisible,
       asideLibrarySearchVisible: false
-    });
+    };
+    this.setState(asideSettings);
+    this.saveAsideSettings(asideSettings);
   },
 
   hidePreview() {
@@ -782,7 +812,7 @@ export default assign({
               </bem.FormBuilderAside__header>
 
               <label
-                className='Select__label'
+                className='kobo-select-label'
                 htmlFor='webform-style'
               >
                 { hasSettings ?
@@ -793,15 +823,16 @@ export default assign({
               </label>
 
               <Select
-                className='Select--underlined'
+                className='kobo-select'
+                classNamePrefix='kobo-select'
                 id='webform-style'
                 name='webform-style'
                 ref='webformStyle'
-                value={styleValue}
+                value={this.getStyleSelectVal(styleValue)}
                 onChange={this.onStyleChange}
-                allowCreate
                 placeholder={AVAILABLE_FORM_STYLES[0].label}
                 options={AVAILABLE_FORM_STYLES}
+                menuPlacement='auto'
               />
             </bem.FormBuilderAside__row>
 

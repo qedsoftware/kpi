@@ -6,9 +6,8 @@ $asset-row-spacing: 6px;
   list-style-type: none;
   border-top: 1px solid $divider-color;
   padding: $asset-row-spacing $asset-row-spacing * 2;
-  white-space: nowrap;
   transition: max-height 0.5s ease, opacity 0.5s ease;
-  min-height: 52px;
+  min-height: 49px;
   opacity: 1;
   position: relative;
   align-items: flex-start;
@@ -20,6 +19,15 @@ $asset-row-spacing: 6px;
     z-index: 1;
   }
 
+  .asset-row__link-overlay {
+    cursor: pointer;
+    position: absolute;
+    top: -1 * $asset-row-spacing;
+    left: -2 * $asset-row-spacing;
+    width: calc(100% + #{4 * $asset-row-spacing});
+    height: calc(100% + #{2 * $asset-row-spacing});
+  }
+
   > .asset-row__cell {
     width: 100%;
     display: flex;
@@ -28,9 +36,6 @@ $asset-row-spacing: 6px;
     > .asset-row__cell {
       min-width: 0;
       vertical-align: top;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
 
       &.asset-row__cell--type {
         text-transform: capitalize;
@@ -42,11 +47,11 @@ $asset-row-spacing: 6px;
     border-top: 1px solid $divider-color;
   }
 
-  &--deleting {
+  &.asset-row--deleting {
     opacity: 0.5;
   }
 
-  &--deleted {
+  &.asset-row--deleted {
     transition: max-height 0.5s ease, opacity 0.5s ease;
     opacity: 0;
     max-height: 0px;
@@ -56,14 +61,26 @@ $asset-row-spacing: 6px;
     overflow: hidden;
   }
 
-  .asset-row__celllink--name {
-    display: inline-block;
-    width: 98%;
-    text-overflow: ellipsis;
-    overflow: hidden;
+  .asset-row__cell--asset-details {
+    position: relative;
+
+    &:hover {
+      color: $cool-charcoal;
+    }
+  }
+
+  .asset-row__cell--name {
     font-size: 14px;
-    vertical-align: top;
-    padding: 4px 0px;
+  }
+
+  .asset-row__description,
+  .asset-row__cell--name .asset-name,
+  .asset-row__cell--date-created .date,
+  .asset-row__cell--date-modified .date {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   // default row-icon styles are meant for "--question"
@@ -89,8 +106,10 @@ $asset-row-spacing: 6px;
     }
   }
 
-  .row-icon + .asset-row__celllink--name {
-    width: calc(100% - 50px);
+  .asset-row__cell--title .row-icon {
+    float: left;
+    margin-top: -1px;
+    margin-bottom: -1px;
   }
 
   .asset-row__description {
@@ -98,9 +117,6 @@ $asset-row-spacing: 6px;
     display: block;
     color: $cool-gray;
     font-size: 13px;
-    max-width: 96%;
-    text-overflow: ellipsis;
-    overflow: hidden;
   }
 
   .asset-row__cell--tags {
@@ -131,6 +147,7 @@ $asset-row-spacing: 6px;
     transition: $hover-transition;
     background: $hover-asset-row;
     box-shadow: -5px 0px 15px 0px $hover-asset-row;
+    z-index: 1;
   }
 
   .asset-row__action-icon,
@@ -161,19 +178,9 @@ $asset-row-spacing: 6px;
     }
   }
 
-  &--display-tags .asset-row__action-icon--tagsToggle {
+  &.asset-row--display-tags .asset-row__action-icon--tagsToggle {
     background-color: transparent;
     color: $cool-blue;
-  }
-
-  a.asset-row__celllink {
-    color: $cool-darkgray;
-    display: block;
-  }
-
-  i.row-icon + a.asset-row__celllink {
-    display: inline-block;
-    width: calc(100% - 48px);
   }
 
   &:hover {
@@ -184,10 +191,6 @@ $asset-row-spacing: 6px;
 
       // make them appear moment after items behind starts to disappear
       transition-delay: 0.1s;
-    }
-
-    a.asset-row__celllink {
-      color: $black;
     }
   }
 }
