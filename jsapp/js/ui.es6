@@ -50,6 +50,17 @@ class Modal extends React.Component {
     super(props);
     autoBind(this);
   }
+  componentDidMount() {
+    document.addEventListener('keydown', this.escFunction);
+  }
+  componentWillUnmount() {
+    document.removeEventListener('keydown', this.escFunction);
+  }
+  escFunction (evt) {
+    if (evt.keyCode === 27 || evt.key === 'Escape') {
+      this.props.onClose.call(evt);
+    }
+  }
   backdropClick (evt) {
     if (evt.currentTarget === evt.target) {
       this.props.onClose.call(evt);
@@ -170,6 +181,7 @@ class AssetName extends React.Component {
     var row_count;
     if (!name) {
       row_count = summary.row_count;
+      // for unnamed assets, we try to display first question name
       name = summary.labels ? summary.labels[0] : false;
       if (!name) {
         isEmpty = true;
@@ -202,6 +214,7 @@ class PopoverMenu extends React.Component {
       popoverHiding: false,
       placement: 'below'
     });
+    this.MAX_ASSETROW_MENU_HEIGHT = 300;
     this._mounted = false;
     autoBind(this);
   }
@@ -217,6 +230,18 @@ class PopoverMenu extends React.Component {
 
     if (isBlur && this.props.blurEventDisabled)
       return false;
+
+    if (
+      isBlur &&
+      evt.relatedTarget &&
+      evt.relatedTarget.dataset &&
+      evt.relatedTarget.dataset.popoverMenuStopBlur
+    ) {
+      // bring back focus to trigger to still enable this toggle callback
+      // but don't close the menu
+      evt.target.focus();
+      return false;
+    }
 
     if (this.state.popoverVisible || isBlur) {
         $popoverMenu = $(evt.target).parents('.popover-menu').find('.popover-menu__content');
@@ -241,12 +266,11 @@ class PopoverMenu extends React.Component {
 
     if (this.props.type == 'assetrow-menu' && !this.state.popoverVisible) {
       this.props.popoverSetVisible();
-      var $assetRowOffset = $(evt.target).parents('.asset-row').offset().top;
-      var $assetListHeight = $(evt.target).parents('.page-wrapper__content').height();
-      if ($assetListHeight - $assetRowOffset < 150) {
-        this.setState({
-          placement: 'above',
-        });
+      const $assetRowTopOffset = $(evt.target).parents('.asset-row').offset().top;
+      if ($assetRowTopOffset > this.MAX_ASSETROW_MENU_HEIGHT) {
+        this.setState({placement: 'above'});
+      } else {
+        this.setState({placement: 'below'});
       }
     }
   }

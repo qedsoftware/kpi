@@ -6,7 +6,6 @@ import re
 import sys
 import copy
 import json
-import logging
 import StringIO
 from collections import OrderedDict
 
@@ -59,6 +58,7 @@ from ..utils.random_id import random_id
 from ..deployment_backends.mixin import DeployableMixin
 from kobo.apps.reports.constants import (SPECIFIC_REPORTS_KEY,
                                          DEFAULT_REPORTS_KEY)
+from kpi.utils.log import logging
 
 
 # TODO: Would prefer this to be a mixin that didn't derive from `Manager`.
@@ -218,14 +218,18 @@ class FormpackXLSFormUtils(object):
     def _remove_empty_expressions(self, content):
         remove_empty_expressions_in_place(content)
 
-    def _adjust_active_translation(self, content):
-        # to get around the form builder's way of handling translations where
-        # the interface focuses on the "null translation" and shows other ones
-        # in advanced settings, we allow the builder to attach a parameter
-        # which says what to name the null translation.
-        _null_translation_as = content.pop('#active_translation_name', None)
-        if _null_translation_as:
-            self._rename_translation(content, None, _null_translation_as)
+    def _make_default_translation_first(self, content):
+        # The form builder only shows the first language, so make sure the
+        # default language is always at the top of the translations list. The
+        # new translations UI, on the other hand, shows all languages:
+        # https://github.com/kobotoolbox/kpi/issues/1273
+        try:
+            default_translation_name = content['settings']['default_language']
+        except KeyError:
+            # No `default_language`; don't do anything
+            return
+        else:
+            self._prioritize_translation(content, default_translation_name)
 
     def _strip_empty_rows(self, content, vals=None):
         if vals is None:
@@ -291,28 +295,40 @@ class FormpackXLSFormUtils(object):
                     )
 
     def _prioritize_translation(self, content, translation_name, is_new=False):
-        _translations = content.get('translations')
+        # the translations/languages present this particular content
+        _translations = content['translations']
+        # the columns that have translations
         _translated = content.get('translated', [])
         if is_new and (translation_name in _translations):
             raise ValueError('cannot add existing translation')
         elif (not is_new) and (translation_name not in _translations):
-            raise ValueError('translation cannot be found')
+            # if there are no translations available, don't try to prioritize,
+            # just ignore the translation `translation_name`
+            if len(_translations) == 1 and _translations[0] is None:
+                return
+            else:  # Otherwise raise an error.
+                # Remove None from translations we want to display to users
+                valid_translations = [t for t in _translations if t is not None]
+                raise ValueError("`{translation_name}` is specified as the default language, "
+                                 "but only these translations are present in the form: `{translations}`".format(
+                                    translation_name=translation_name,
+                                    translations="`, `".join(valid_translations)
+                                    )
+                                 )
+
         _tindex = -1 if is_new else _translations.index(translation_name)
         if is_new or (_tindex > 0):
-            for row in content.get('survey', []):
-                for col in _translated:
-                    if is_new:
-                        val = '{}'.format(row[col][0])
-                    else:
-                        val = row[col].pop(_tindex)
-                    row[col].insert(0, val)
-            for row in content.get('choices', []):
-                for col in _translated:
-                    if is_new:
-                        val = '{}'.format(row[col][0])
-                    else:
-                        val = row[col].pop(_tindex)
-                    row[col].insert(0, val)
+            for sheet_name in 'survey', 'choices':
+                for row in content.get(sheet_name, []):
+                    for col in _translated:
+                        if is_new:
+                            val = '{}'.format(row[col][0])
+                        else:
+                            try:
+                                val = row[col].pop(_tindex)
+                            except KeyError:
+                                continue
+                        row[col].insert(0, val)
             if is_new:
                 _translations.insert(0, translation_name)
             else:
@@ -544,7 +560,7 @@ class Asset(ObjectPermissionMixin,
         '''
         self._standardize(self.content)
 
-        self._adjust_active_translation(self.content)
+        self._make_default_translation_first(self.content)
         self._strip_empty_rows(self.content)
         self._assign_kuids(self.content)
         self._autoname(self.content)
@@ -669,7 +685,15 @@ class Asset(ObjectPermissionMixin,
 
     @property
     def latest_version(self):
-        return self.asset_versions.order_by('-date_modified').first()
+        versions = None
+        try:
+            versions = self.prefetched_latest_versions
+        except AttributeError:
+            versions = self.asset_versions.order_by('-date_modified')
+        try:
+            return versions[0]
+        except IndexError:
+            return None
 
     @property
     def deployed_versions(self):
@@ -682,17 +706,19 @@ class Asset(ObjectPermissionMixin,
 
     @property
     def version_id(self):
-        try:
-            latest_versions = self.prefetched_latest_versions
-        except AttributeError:
-            latest_version = self.latest_version
-            if latest_version:
-                return latest_version.uid
-        else:
-            try:
-                return latest_versions[0]
-            except IndexError:
-                return None
+        # Avoid reading the propery `self.latest_version` more than once, since
+        # it may execute a database query each time it's read
+        latest_version = self.latest_version
+        if latest_version:
+            return latest_version.uid
+
+    @property
+    def version__content_hash(self):
+        # Avoid reading the propery `self.latest_version` more than once, since
+        # it may execute a database query each time it's read
+        latest_version = self.latest_version
+        if latest_version:
+            return latest_version.content_hash
 
     @property
     def snapshot(self):
@@ -700,7 +726,7 @@ class Asset(ObjectPermissionMixin,
 
     @transaction.atomic
     def _snapshot(self, regenerate=True):
-        asset_version = self.asset_versions.first()
+        asset_version = self.latest_version
 
         try:
             snapshot = AssetSnapshot.objects.get(asset=self,
@@ -734,6 +760,15 @@ class Asset(ObjectPermissionMixin,
 
     def __unicode__(self):
         return u'{} ({})'.format(self.name, self.uid)
+
+    @property
+    def has_active_hooks(self):
+        """
+        Returns if asset has active hooks.
+        Useful to update `kc.XForm.has_kpi_hooks` field.
+        :return: {boolean}
+        """
+        return self.hooks.filter(active=True).exists()
 
     @staticmethod
     def optimize_queryset_for_list(queryset):
@@ -797,9 +832,9 @@ class AssetSnapshot(models.Model, XlsExportable, FormpackXLSFormUtils):
 
     def save(self, *args, **kwargs):
         if self.asset is not None:
-            if self.asset_version is None:
-                self.asset_version = self.asset.latest_version
             if self.source is None:
+                if self.asset_version is None:
+                    self.asset_version = self.asset.latest_version
                 self.source = self.asset_version.version_content
             if self.owner is None:
                 self.owner = self.asset.owner
@@ -808,7 +843,7 @@ class AssetSnapshot(models.Model, XlsExportable, FormpackXLSFormUtils):
         if _source is None:
             _source = {}
         self._standardize(_source)
-        self._adjust_active_translation(_source)
+        self._make_default_translation_first(_source)
         self._strip_empty_rows(_source)
         self._autoname(_source)
         self._remove_empty_expressions(_source)

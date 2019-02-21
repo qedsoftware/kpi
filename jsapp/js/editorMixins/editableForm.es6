@@ -6,6 +6,7 @@ import $ from 'jquery';
 import Select from 'react-select';
 import _ from 'underscore';
 import DocumentTitle from 'react-document-title';
+import Checkbox from '../components/checkbox';
 import SurveyScope from '../models/surveyScope';
 import cascadeMixin from './cascadeMixin';
 import AssetNavigator from './assetNavigator';
@@ -14,6 +15,7 @@ import alertify from 'alertifyjs';
 import ProjectSettings from '../components/modalForms/projectSettings';
 import {
   surveyToValidJson,
+  unnullifyTranslations,
   notify,
   assign,
   t,
@@ -55,7 +57,12 @@ class FormSettingsEditor extends React.Component {
               mtype.key = `meta-${mtype.name}`;
             }
             return (
-              <FormCheckbox htmlFor={mtype} onChange={this.props.onCheckboxChange} {...mtype} />
+              <Checkbox
+                key={mtype.key}
+                label={mtype.label}
+                checked={mtype.value}
+                onChange={this.props.onCheckboxChange.bind(this, mtype.name)}
+              />
             );
           })}
         </bem.FormBuilderMeta__column>
@@ -65,7 +72,12 @@ class FormSettingsEditor extends React.Component {
               mtype.key = `meta-${mtype.name}`;
             }
             return (
-              <FormCheckbox htmlFor={mtype} onChange={this.props.onCheckboxChange} {...mtype} />
+              <Checkbox
+                key={mtype.key}
+                label={mtype.label}
+                checked={mtype.value}
+                onChange={this.props.onCheckboxChange.bind(this, mtype.name)}
+              />
             );
           })}
         </bem.FormBuilderMeta__column>
@@ -74,28 +86,6 @@ class FormSettingsEditor extends React.Component {
   }
   focusSelect () {
     this.refs.webformStyle.focus();
-  }
-};
-
-class FormCheckbox extends React.Component {
-  constructor(props) {
-    super(props);
-  }
-  render () {
-    // TODO: use better written (styled) checkboxes from https://github.com/kobotoolbox/kpi/pull/1864 after merge
-    return (
-      <bem.FormBuilderMeta__row>
-        <input
-          type='checkbox'
-          id={this.props.name}
-          checked={this.props.value}
-          onChange={this.props.onChange}
-        />
-        <label htmlFor={this.props.name}>
-          {this.props.label}
-        </label>
-      </bem.FormBuilderMeta__row>
-    );
   }
 };
 
@@ -139,8 +129,8 @@ class FormSettingsBox extends React.Component {
     };
   }
 
-  onCheckboxChange(evt) {
-    this.getSurveyDetail(evt.target.id).set('value', evt.target.checked);
+  onCheckboxChange(name, isChecked) {
+    this.getSurveyDetail(name).set('value', isChecked);
     this.updateState();
     if (typeof this.props.onChange === 'function') {
       this.props.onChange();
@@ -167,9 +157,13 @@ class FormSettingsBox extends React.Component {
   }
 };
 
+const ASIDE_CACHE_NAME = 'kpi.editable-form.aside';
+
 export default assign({
   componentDidMount() {
     document.body.classList.add('hide-edge');
+
+    this.loadAsideSettings();
 
     if (this.state.editorState === 'existing') {
       let uid = this.props.params.assetid;
@@ -199,6 +193,17 @@ export default assign({
     this.unpreventClosingTab();
   },
 
+  loadAsideSettings() {
+    const asideSettings = sessionStorage.getItem(ASIDE_CACHE_NAME);
+    if (asideSettings) {
+      this.setState(JSON.parse(asideSettings));
+    }
+  },
+
+  saveAsideSettings(asideSettings) {
+    sessionStorage.setItem(ASIDE_CACHE_NAME, JSON.stringify(asideSettings));
+  },
+
   onFormSettingsBoxChange() {
     this.onSurveyChange();
   },
@@ -226,6 +231,12 @@ export default assign({
       settings__style: settingsStyle
     });
     this.onSurveyChange();
+  },
+
+  getStyleSelectVal(optionVal) {
+    return _.find(AVAILABLE_FORM_STYLES, (option) => {
+      return option.value === optionVal;
+    });
   },
 
   onSurveyChange: _.debounce(function () {
@@ -287,9 +298,11 @@ export default assign({
     if (this.state.name)
       this.app.survey.settings.set('title', this.state.name);
 
-    var params = {
-      source: surveyToValidJson(this.app.survey),
-    };
+    let surveyJSON = surveyToValidJson(this.app.survey)
+    if (this.state.asset) {
+      surveyJSON = unnullifyTranslations(surveyJSON, this.state.asset.content);
+    }
+    let params = {source: surveyJSON};
 
     params = koboMatrixParser(params);
 
@@ -323,9 +336,11 @@ export default assign({
       this.app.survey.settings.set('style', this.state.settings__style);
     }
 
-    let params = {
-      content: surveyToValidJson(this.app.survey),
-    };
+    let surveyJSON = surveyToValidJson(this.app.survey)
+    if (this.state.asset) {
+      surveyJSON = unnullifyTranslations(surveyJSON, this.state.asset.content);
+    }
+    let params = {content: surveyJSON};
 
     if (this.state.name) {
       params.name = this.state.name;
@@ -454,18 +469,22 @@ export default assign({
 
   toggleAsideLibrarySearch(evt) {
     evt.target.blur();
-    this.setState({
+    const asideSettings = {
       asideLayoutSettingsVisible: false,
       asideLibrarySearchVisible: !this.state.asideLibrarySearchVisible,
-    });
+    };
+    this.setState(asideSettings);
+    this.saveAsideSettings(asideSettings);
   },
 
   toggleAsideLayoutSettings(evt) {
     evt.target.blur();
-    this.setState({
+    const asideSettings = {
       asideLayoutSettingsVisible: !this.state.asideLayoutSettingsVisible,
       asideLibrarySearchVisible: false
-    });
+    };
+    this.setState(asideSettings);
+    this.saveAsideSettings(asideSettings);
   },
 
   hidePreview() {
@@ -554,8 +573,20 @@ export default assign({
     }
   },
 
-  safeNavigateToFormsList() {
-    this.safeNavigateToRoute('/forms/');
+  safeNavigateToList() {
+    if (this.state.asset_type) {
+      if (this.state.asset_type === 'survey') {
+        this.safeNavigateToRoute('/forms/');
+      } else {
+        this.safeNavigateToRoute('/library/');
+      }
+    } else {
+      if (this.props.location.pathname.startsWith('/library/new')) {
+        this.safeNavigateToRoute('/library/');
+      } else {
+        this.safeNavigateToRoute('/forms/');
+      }
+    }
   },
 
   safeNavigateToForm() {
@@ -611,7 +642,7 @@ export default assign({
             m={'logo'}
             data-tip={t('Return to list')}
             className='left-tooltip'
-            onClick={this.safeNavigateToFormsList}
+            onClick={this.safeNavigateToList}
           >
             <i className='k-icon-kobo' />
           </bem.FormBuilderHeader__cell>
@@ -782,7 +813,7 @@ export default assign({
               </bem.FormBuilderAside__header>
 
               <label
-                className='Select__label'
+                className='kobo-select-label'
                 htmlFor='webform-style'
               >
                 { hasSettings ?
@@ -793,15 +824,16 @@ export default assign({
               </label>
 
               <Select
-                className='Select--underlined'
+                className='kobo-select'
+                classNamePrefix='kobo-select'
                 id='webform-style'
                 name='webform-style'
                 ref='webformStyle'
-                value={styleValue}
+                value={this.getStyleSelectVal(styleValue)}
                 onChange={this.onStyleChange}
-                allowCreate
                 placeholder={AVAILABLE_FORM_STYLES[0].label}
                 options={AVAILABLE_FORM_STYLES}
+                menuPlacement='auto'
               />
             </bem.FormBuilderAside__row>
 

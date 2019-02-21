@@ -1,3 +1,4 @@
+import _ from 'underscore';
 import React from 'react';
 import autoBind from 'react-autobind';
 import { bemComponents } from 'js/libs/reactBemComponents';
@@ -6,6 +7,7 @@ import { sluggify, txtid } from '../../../xlform/src/model.utils';
 import { Map } from 'immutable';
 import Select from 'react-select';
 import alertify from 'alertifyjs';
+import Checkbox from 'js/components/checkbox';
 
 const bem = bemComponents({
   Matrix: 'kobomatrix',
@@ -144,10 +146,18 @@ class KoboMatrix extends React.Component {
   colChange(e) {
     const colKuid = this.state.expandedColKuid;
     var data = this.state.data;
-    const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    const val = e.target.value;
     const type = e.target.getAttribute('data-type');
     data = data.setIn([colKuid, type], val);
 
+    this.setState({data: data});
+    this.toLocalStorage(data);
+  }
+
+  requiredChange(isChecked) {
+    const colKuid = this.state.expandedColKuid;
+    var data = this.state.data;
+    data = data.setIn([colKuid, 'required'], isChecked);
     this.setState({data: data});
     this.toLocalStorage(data);
   }
@@ -239,6 +249,13 @@ class KoboMatrix extends React.Component {
 
   getCol(colKuid, field) {
     return this.state.data.getIn([colKuid, field]);
+  }
+
+  getSelectTypeVal(expandedCol) {
+    const typeVal = this.getCol(expandedCol, 'type');
+    return _.find(this.state.typeChoices, (option) => {
+      return option.value === typeVal;
+    });
   }
 
   getChoiceField(kuid, field) {
@@ -395,10 +412,15 @@ class KoboMatrix extends React.Component {
               <bem.MatrixCols__settings_inner>
                 <label>
                   <span>{t('Response Type')}</span>
-                  <Select value={this.getCol(expandedCol, 'type')}
-                    clearable={false}
+                  <Select
+                    value={this.getSelectTypeVal(expandedCol)}
+                    isClearable={false}
                     options={this.state.typeChoices}
-                    onChange={this.colChangeType} />
+                    onChange={this.colChangeType}
+                    className='kobo-select'
+                    classNamePrefix='kobo-select'
+                    menuPlacement='auto'
+                  />
                 </label>
                 <label>
                   <span>{t('Label')}</span>
@@ -416,14 +438,11 @@ class KoboMatrix extends React.Component {
                 </label>
                 <label>
                   <span>{t('Required')}</span>
-                  <input type='checkbox'
-                    id={`required-${expandedCol}`}
-                    name={`required-${expandedCol}`}
+                  <Checkbox
                     checked={this.getRequiredStatus(expandedCol)}
-                    onChange={this.colChange}
+                    onChange={this.requiredChange}
                     className='js-cancel-sort'
-                    data-type='required' />
-                  <label htmlFor={`required-${expandedCol}`}/>
+                  />
                 </label>
                 {this.getCol(expandedCol, 'select_from_list_name') &&
                   <div className='matrix-cols__options'>

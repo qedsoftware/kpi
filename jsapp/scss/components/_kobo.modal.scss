@@ -1,3 +1,7 @@
+$z-modal-backdrop: 1001;
+$z-enketo-iframe-icon: 1000;
+$z-modal-x: 10;
+
 // -----------------------------------------------------------------------------
 // common modal parts
 // -----------------------------------------------------------------------------
@@ -6,33 +10,35 @@
   position: fixed;
   height: 100%;
   width: 100%;
-  z-index: 1001;
+  z-index: $z-modal-backdrop;
   top: 0px;
   left: 0px;
   background-color: rgba(0, 0, 0, 0.4) !important;
 }
 
 .modal {
+  align-items: stretch;
+  display: flex;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 40%;
+  max-width: 90%;
+  max-height: 95%;
+  overflow-x: auto;
+  box-shadow: 0 0 12px 0 rgba(0, 0, 0, 0.06), 0 12px 12px 0 rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+  visibility: hidden;
+
   &.modal--open {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    min-width: 40%;
-    max-width: 90%;
-    max-height: 95%;
-    overflow-x: auto;
-    box-shadow: 0 0 12px 0 rgba(0, 0, 0, 0.06), 0 12px 12px 0 rgba(0, 0, 0, 0.12);
+    visibility: visible;
   }
 
   &.modal--large {
-    &.modal--open {
-      height: 80%;
-      width: 80%;
-      max-width: 1240px;
-      align-items: stretch;
-      display: flex;
-    }
+    height: 80%;
+    width: 80%;
+    max-width: 1240px;
 
     .modal__content {
       height: 100%;
@@ -76,6 +82,7 @@
 .modal__content {
   overflow: auto;
   background-color: #FFF;
+  width: 100%;
 }
 
 .modal__tabs {
@@ -84,7 +91,6 @@
 }
 
 .modal__header {
-  position: relative;
   min-height: 70px;
   background: $cool-blue;
   color: #FFF;
@@ -99,15 +105,21 @@
 
 .modal__x {
   position: absolute;
-  background-color: transparent;
+  z-index: $z-modal-x;
   top: 0;
   right: 0;
-  padding: 19px;
+  color: inherit;
+  background-color: inherit;
+  padding: 8px;
+  margin: 11px;
+  border-radius: 50%;
   font-size: 20px;
-  color: #FFF;
   cursor: pointer;
 
-  i {font-size: 32px;}
+  i {
+    display: block;
+    font-size: 32px;
+  }
 
   &:hover {opacity: 0.7;}
 }
@@ -183,17 +195,9 @@
 // custom parts and overrides
 // -----------------------------------------------------------------------------
 
-.modal-submission {
-  .modal--open {
-    background-color: #FFF;
-  }
-
+.modal.modal-submission {
   .modal__header {
     background-color: #F8F8F8;
-    color: $layout-text-color;
-  }
-
-  .modal__x {
     color: $layout-text-color;
   }
 
@@ -217,7 +221,7 @@
       width: 50%;
       text-align: left;
 
-      label, div.Select {
+      label, .kobo-select {
         display: inline-block;
         vertical-align: middle;
       }
@@ -230,6 +234,9 @@
     .switch--validation-status {
       width: 100%;
       text-align: right;
+      .kobo-select {
+        text-align: left;
+      }
     }
 
     .switch--label-language + .switch--validation-status {
@@ -240,8 +247,7 @@
       min-width: 100px;
     }
 
-    .Select {
-      text-align: left;
+    .kobo-select {
       min-width: 120px;
     }
   }
@@ -393,7 +399,7 @@
   right: 6px;
   top: 6px;
   border-radius: 3px;
-  z-index: 1000;
+  z-index: $z-enketo-iframe-icon;
   width: 15px;
   height: 15px;
   cursor: pointer;
@@ -402,8 +408,11 @@
 .project-settings {
   // make sure it doesn't get too small (but only inside modal)
   .modal & {
-    width: 600px;
-    max-width: 100%;
+    width: 100%;
+
+    @media screen and (min-width: 768px) {
+      min-width: 600px;
+    }
   }
 
   .intro {
@@ -418,7 +427,7 @@
       width: 100%;
       float: none;
 
-      .Select {
+      .kobo-select {
         margin-right: 0;
       }
     }
@@ -504,9 +513,63 @@
   }
 }
 
+.form-modal__item--http-headers {
+  .form-modal__item--http-header-row {
+    margin-top: 10px;
+
+    input {
+      width: calc(50% - 20px);
+      background-color: rgba($black, 0.05);
+      padding-left: 5px;
+      padding-right: 5px;
+
+      &:not(:first-child) {
+        margin-left: 10px;
+      }
+    }
+  }
+
+  .http-header-add,
+  .http-header-row-remove {
+    height: 30px;
+    min-height: 30px;
+    line-height: 30px;
+
+    .k-icon {
+      font-size: 1.5em;
+      vertical-align: middle;
+    }
+  }
+
+  .http-header-add {
+    @extend .mdl-button, .mdl-button--raised, .mdl-button--colored;
+    background: $cool-gray;
+    vertical-align: middle;
+    padding: 0 12px 0 6px;
+
+    &:hover {background: darken($cool-gray, 10%);}
+  }
+
+  .http-header-row-remove {
+    @extend .mdl-button, .mdl-button--icon;
+    width: 30px;
+    vertical-align: top;
+    padding: 0;
+    &:hover {color: $cool-red;}
+  }
+}
+
 .form-modal--translation-settings {
+  @media (min-width: 600px) {
+    min-width: 500px;
+  }
+
   .form-view__cell--translation-note {
     padding-bottom: 20px;
+
+    p {
+      margin: 0;
+    }
   }
   .form-view__cell--translation {
     display: flex;
@@ -514,11 +577,27 @@
     align-items: center;
     border-top: 1px solid $divider-color;
     padding: 6px 0px;
+
+    .form-view__cell--translation-name .form-view__icon-button {
+      opacity: 0;
+      visibility: hidden;
+      transition: 250ms;
+    }
+
+    &:hover .form-view__cell--translation-name .form-view__icon-button {
+      opacity: 1;
+      visibility: visible;
+    }
   }
 
   .form-view__cell--translation-actions {
-    min-width: 150px;
-    text-align: right;
+    white-space: nowrap;
+  }
+
+  .form-view__label--default-language {
+    display: inline;
+    font-weight: 700;
+    margin-left: 6px;
   }
 
   .form-view__cell--add-language {
@@ -614,152 +693,6 @@
         }
       }
     }
-  }
-}
-
-// alertify overrides
-
-.alertify .ajs-dimmer {
-  background-color: #FFF;
-  opacity: 0.55;
-}
-
-.alertify .ajs-dialog {
-  box-shadow: 2px 2px 15px 2px rgba(0, 0, 0, 0.15);
-}
-
-.alertify .ajs-header {
-  margin: 0px;
-  padding: 0px;
-  padding-bottom: 18px;
-  font-size: 18px;
-  font-weight: bold;
-}
-
-.alertify.ajs-closable .ajs-commands button {
-  width: 32px;
-  height: 32px;
-  padding: 0px;
-}
-
-.alertify.ajs-closable .ajs-commands button.ajs-close {
-  background: transparent;
-  font-size: 32px;
-  color: lighten($cool-gray, 20%);
-
-  &:hover {
-    color: $cool-gray;
-  }
-}
-
-.alertify.ajs-closable .ajs-commands button.ajs-close:before {
-  content: '\00d7';
-}
-
-.alertify.ajs-closable .ajs-commands {
-  margin: 0px;
-  top: 20px;
-  right: 20px;
-  padding: 0px;
-}
-
-.alertify .ajs-body .ajs-content {
-  padding: 0px;
-
-  pre {
-    max-height: 300px;
-    overflow: auto;
-    word-wrap: break-word;
-    max-width: 100%;
-    padding-right: 20px;
-    white-space: initial;
-    font-size: 12px;
-  }
-}
-
-.alertify .ajs-dialog {
-  max-width: 550px;
-  padding: 30px 30px 0 30px;
-}
-
-.alertify .ajs-footer {
-  margin: -4px;
-  padding: 17px 0px;
-
-  .ajs-buttons.ajs-primary {
-    text-align: right;
-  }
-
-  button {
-    @extend .mdl-button;
-
-    text-transform: uppercase;
-    padding-left: 20px;
-    padding-right: 20px;
-
-    &.ajs-ok {
-      @extend .mdl-button--colored, .mdl-button--raised;
-    }
-
-    &.ajs-cancel {
-      @extend .mdl-button--colored;
-
-      &:focus, &:focus:not(:active) {
-        background: transparent;
-      }
-    }
-  }
-}
-
-.alertify-notifier {
-  .ajs-message,
-  .ajs-message.ajs-error,
-  .ajs-message.ajs-success,
-  .ajs-message.ajs-warning {
-    background: #484b5a;
-    color: white;
-    padding: 17px 24px;
-    padding-right: 44px;
-    width: auto;
-    min-width: 320px;
-    max-width: 460px;
-    line-height: 1.3em;
-  }
-
-  .ajs-message .ajs-close {
-    background-image: none;
-    background: transparent;
-    right: 15px;
-    top: 50%;
-    margin-top: -10px;
-    opacity: 0.5;
-
-    @extend .k-icon, .k-icon-close;
-
-    color: white;
-  }
-}
-
-.alertify-toggle {
-  // border:2px solid red;
-  display: block;
-  padding-bottom: 5px;
-  padding-top: 5px;
-
-  input {
-    margin-right: 5px;
-  }
-
-  &:first-child {
-    padding-top: 15px;
-  }
-
-  &.alertify-toggle-important {
-    margin-top: 20px;
-    padding-top: 20px;
-    padding-bottom: 20px;
-    border-top: 1px solid #EDEDED;
-    font-weight: bold;
   }
 }
 

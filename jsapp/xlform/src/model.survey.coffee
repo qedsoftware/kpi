@@ -36,6 +36,9 @@ module.exports = do ->
         if !$inputParser.hasBeenParsed(options)
           options.survey = $inputParser.parseArr(options.survey)
         for r in options.survey
+          if typeof r.id isnt 'undefined'
+            throw new Error("Forbidden column `id` for row: #{JSON.stringify(r, null, 2)}")
+
           if r.type in $configs.surveyDetailSchema.typeList()
             @surveyDetails.importDetail(r)
           else
@@ -52,6 +55,7 @@ module.exports = do ->
 
     @create: (options={}, addlOpts) ->
       return new Survey(options, addlOpts)
+
     linkUpChoiceLists: ->
       # In case of cascading selects, this will ensure choiceLists are connected to
       # sub choice lists through a private "__cascadeList" property
@@ -62,7 +66,7 @@ module.exports = do ->
           throw new Error("cascading choices can only reference one choice list")
         else if overlapping_choice_keys.length is 1
           choiceList.__cascadedList = @choices.get(overlapping_choice_keys[0])
-      null
+      return
 
     insert_row: (row, index) ->
       if row._isCloned
@@ -295,8 +299,8 @@ module.exports = do ->
   Survey.load.md = (md)->
     sObj = $markdownTable.mdSurveyStructureToObject(md)
     new Survey(sObj)
-  Survey.loadDict = (obj)->
-    _parsed = $inputParser.parse obj
+  Survey.loadDict = (obj, baseSurvey)->
+    _parsed = $inputParser.parse(obj, baseSurvey)
     new Survey(_parsed)
 
   _is_csv = (csv_repr)->
