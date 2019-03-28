@@ -1,12 +1,15 @@
 import RunRoutes, {routes} from './app';
+import RegistrationPasswordApp from './registrationPasswordApp';
 import {AppContainer} from 'react-hot-loader'
 import $ from 'jquery';
 import 'babel-polyfill'; // required to support Array.prototypes.includes in IE11
-import cookie from 'react-cookie';
+import {Cookies} from 'react-cookie';
 import React from 'react';
 import {render} from 'react-dom';
 
 require('../scss/main.scss');
+
+const cookies = new Cookies();
 
 var el = (function(){
   var $d = $('<div>', {'class': 'kpiapp'});
@@ -16,7 +19,7 @@ var el = (function(){
 
 var CSRF_TOKEN_KEY = 'kobo_csrftoken';
 
-window.csrftoken = cookie.load(CSRF_TOKEN_KEY);
+window.csrftoken = cookies.get(CSRF_TOKEN_KEY);
 
 function csrfSafeMethod(method) {
     // these HTTP methods do not require CSRF protection
@@ -43,3 +46,10 @@ if (document.head.querySelector('meta[name=kpi-root-url]')) {
 } else {
   console.error('no kpi-root-url meta tag set. skipping react-router init');
 }
+
+document.addEventListener('DOMContentLoaded', (evt) => {
+  const registrationPasswordAppEl = document.getElementById('registration-password-app');
+  if (registrationPasswordAppEl) {
+    render(<AppContainer><RegistrationPasswordApp /></AppContainer>, registrationPasswordAppEl);
+  }
+});
