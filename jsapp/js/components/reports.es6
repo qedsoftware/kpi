@@ -4,7 +4,8 @@ import autoBind from 'react-autobind';
 import Reflux from 'reflux';
 import _ from 'underscore';
 import {dataInterface} from '../dataInterface';
-
+import Checkbox from './checkbox';
+import Radio from './radio';
 import actions from '../actions';
 import bem from '../bem';
 import stores from '../stores';
@@ -236,11 +237,10 @@ class CustomReportForm extends React.Component {
     r.name = e.target.value;
     this.setState({customReport: r});
   }
-  customReportQuestionChange(e) {
+  customReportQuestionChange(name, isChecked) {
     var r = this.state.customReport;
-    var name = e.target.getAttribute('data-name');
 
-    if (e.target.checked) {
+    if (isChecked) {
       r.questions.push(name);
     } else {
       r.questions.splice(r.questions.indexOf(name), 1);
@@ -266,14 +266,11 @@ class CustomReportForm extends React.Component {
     var questionList = this.props.reportData.map(function(q, i){
       return (
         <div className='graph-settings__question' key={i}>
-            <input type='checkbox' name='chart_question'
+            <Checkbox
               checked={this.state.customReport.questions.includes(q.name)}
-              onChange={this.customReportQuestionChange}
-              data-name={q.name}
-              id={'q-' + q.name} />
-            <label htmlFor={'q-' + q.name}>
-              {q.row.label ? q.row.label[0] : t('Unlabeled') }
-            </label>
+              onChange={this.customReportQuestionChange.bind(this, q.name)}
+              label={q.row.label ? q.row.label[0] : t('Unlabeled') }
+            />
         </div>
       );
     }, this);
@@ -492,7 +489,7 @@ class ReportContents extends React.Component {
         }
       }
 
-      if (_type === 'select_one' || _type === 'select_multiple') {
+      if ((_type === 'select_one' || _type === 'select_multiple') && asset.content.choices) {
         let question = asset.content.survey.find(z => z.name === _qn || z.$autoname === _qn);
         let resps = reportData[i].data.responses;
         if (resps) {
@@ -529,7 +526,12 @@ class ReportContents extends React.Component {
       <div>
         {
           reportData.map((rowContent, i)=>{
-            var label = (rowContent.row.label && rowContent.row.label[tnslIndex]) ? rowContent.row.label[tnslIndex] : t('Unlabeled');
+            let label = t('Unlabeled');
+            if (_.isArray(rowContent.row.label)) {
+              label = rowContent.row.label[tnslIndex];
+            } else if (_.isString(rowContent.row.label)) {
+              label = rowContent.row.label;
+            }
 
             if (!rowContent.data.provided)
               return false;
@@ -580,14 +582,14 @@ class ReportStyleSettings extends React.Component {
       this.setState({reportStyle: styles});
     }
   }
-  translationIndexChange (evt) {
+  translationIndexChange (name, value) {
     let styles = this.state.reportStyle;
-    styles.translationIndex = evt.target.value;
+    styles.translationIndex = parseInt(value);
     this.setState({reportStyle: styles});
   }
-  groupDataBy (evt) {
+  onGroupByChange (name, value) {
     let styles = this.state.reportStyle;
-    styles.groupDataBy = evt.target.value;
+    styles.groupDataBy = value;
     this.setState({reportStyle: styles});
   }
   saveReportStyles() {
@@ -610,24 +612,42 @@ class ReportStyleSettings extends React.Component {
         translations = this.props.parentState.translations,
         reportStyle = this.state.reportStyle;
 
-    var groupByList = [];
-
-    for (var key in rows) {
-      if (rows.hasOwnProperty(key)
-          && rows[key].hasOwnProperty('type')
-          && rows[key].type == 'select_one') {
-        groupByList.push(rows[key]);
+    const groupByOptions = [];
+    groupByOptions.push({
+      value: '',
+      label: t('No grouping')
+    });
+    for (let key in rows) {
+      if (
+        rows.hasOwnProperty(key) &&
+        rows[key].hasOwnProperty('type') &&
+        rows[key].type == 'select_one'
+      ) {
+        const row = rows[key];
+        const val = row.name || row.$autoname;
+        const label = translations ? row.label[reportStyle.translationIndex] : row.label;
+        groupByOptions.push({
+          value: val,
+          label: label
+        });
       }
     }
 
     var tabs = [t('Chart Type'), t('Colors')];
 
-    if (groupByList.length > 0) {
+    if (groupByOptions.length > 1) {
       tabs.push(t('Group By'));
     }
 
+    const selectedTranslationOptions = [];
     if (translations) {
       tabs.push(t('Translation'));
+      this.props.parentState.asset.content.translations.map((row, i) => {
+        selectedTranslationOptions.push({
+          value: i,
+          label: row || t('Unnamed language')
+        });
+      })
     }
 
     var modalTabs = tabs.map(function(tab, i){
@@ -648,7 +668,7 @@ class ReportStyleSettings extends React.Component {
         </ui.Modal.Tabs>
         <ui.Modal.Body>
           <div className='tabs-content'>
-            {this.state.activeModalTab === 0 &&
+            {tabs[this.state.activeModalTab] === t('Chart Type') &&
               <div id='graph-type'>
                 <ChartTypePicker
                   defaultStyle={reportStyle}
@@ -656,7 +676,7 @@ class ReportStyleSettings extends React.Component {
                 />
               </div>
             }
-            {this.state.activeModalTab === 1 &&
+            {tabs[this.state.activeModalTab] === t('Colors') &&
               <div id='graph-colors'>
                 <ChartColorsPicker
                   defaultStyle={reportStyle}
@@ -667,48 +687,24 @@ class ReportStyleSettings extends React.Component {
                   onChange={this.reportSizeChange} />
               </div>
             }
-            {this.state.activeModalTab === 2 && groupByList.length > 0 &&
+            {tabs[this.state.activeModalTab] === t('Group By') && groupByOptions.length > 1 &&
               <div className='graph-tab__groupby' id='graph-labels'>
-                <label htmlFor={'groupby-00'} key='00'>
-                  <input type='radio' name='group_by'
-                    value={''}
-                    onChange={this.groupDataBy}
-                    checked={reportStyle.groupDataBy.length === 0 ? true : false}
-                    id={'groupby-00'} />
-                      {t('No grouping')}
-                </label>
-
-                {groupByList.map((row, i)=>{
-                    var val = row.name || row.$autoname;
-                    return (
-                      <label htmlFor={'groupby-' + i} key={i}>
-                        <input type='radio' name='group_by'
-                          value={val}
-                          onChange={this.groupDataBy}
-                          checked={reportStyle.groupDataBy === val ? true : false}
-                          id={'groupby-' + i} />
-                          {translations ? row.label[reportStyle.translationIndex] : row.label}
-                      </label>
-                    );
-                  })
-                }
+                <Radio
+                  name='reports-groupby'
+                  options={groupByOptions}
+                  onChange={this.onGroupByChange}
+                  selected={reportStyle.groupDataBy}
+                />
               </div>
             }
-            {this.state.activeModalTab === 3 && translations &&
+            {tabs[this.state.activeModalTab] === t('Translation') && selectedTranslationOptions.length > 1 &&
               <div className='graph-tab__translation' id='graph-labels'>
-                {this.props.parentState.asset.content.translations.map((row, i)=>{
-                    return (
-                      <label htmlFor={'translation-' + i} key={i}>
-                        <input type='radio' name='trnsltn'
-                          value={i}
-                          onChange={this.translationIndexChange}
-                          checked={this.props.parentState.asset.content.translations[reportStyle.translationIndex] === row ? true : false}
-                          id={'translation-' + i} />
-                        {row || t('Unnamed language')}
-                      </label>
-                    );
-                  })
-                }
+                <Radio
+                  name='reports-selected-translation'
+                  options={selectedTranslationOptions}
+                  onChange={this.translationIndexChange}
+                  selected={reportStyle.translationIndex}
+                />
               </div>
             }
           </div>
@@ -733,7 +729,7 @@ class Reports extends React.Component {
       translations: false,
       activeModalTab: 0,
       error: false,
-      showExpandedReport: false,
+      isFullscreen: false,
       reportLimit: 200,
       customReports: false,
       showReportGraphSettings: false,
@@ -915,6 +911,15 @@ class Reports extends React.Component {
       showReportGraphSettings: !this.state.showReportGraphSettings,
     });
   }
+  hasAnyProvidedData (reportData) {
+    let hasAny = false;
+    reportData.map((rowContent, i)=>{
+      if (rowContent.data.provided) {
+        hasAny = true;
+      }
+    });
+    return hasAny;
+  }
   setCustomReport (e) {
     var crid = e ? e.target.getAttribute('data-crid') : false;
 
@@ -955,19 +960,8 @@ class Reports extends React.Component {
   triggerDefaultReport() {
     this.setState({currentCustomReport: false});
   }
-  toggleExpandedReports () {
-    if (this.state.showExpandedReport) {
-      // load asset again to restore header title and submission count after exiting expanded report
-      actions.resources.loadAsset({id: this.props.params.assetid});
-    }
-    stores.pageState.hideDrawerAndHeader(!this.state.showExpandedReport);
-    this.setState({
-      showExpandedReport: !this.state.showExpandedReport,
-    });
-  }
-  componentWillUnmount() {
-    if (this.state.showExpandedReport)
-      stores.pageState.hideDrawerAndHeader(!this.state.showExpandedReport);
+  toggleFullscreen () {
+    this.setState({isFullscreen: !this.state.isFullscreen});
   }
   launchPrinting () {
     window.print();
@@ -1024,9 +1018,11 @@ class Reports extends React.Component {
           </button>
         }
 
-        <button className='mdl-button mdl-button--icon report-button__expand'
-                onClick={this.toggleExpandedReports}
-                data-tip={t('Expand')}>
+        <button
+          className='mdl-button mdl-button--icon report-button__expand right-tooltip'
+          onClick={this.toggleFullscreen}
+          data-tip={t('Toggle fullscreen')}
+        >
           <i className='k-icon-expand' />
         </button>
 
@@ -1112,7 +1108,6 @@ class Reports extends React.Component {
     var reportData = this.state.reportData || [];
 
     if (reportData.length) {
-
       if (currentCustomReport && currentCustomReport.questions.length) {
         const currentQuestions = currentCustomReport.questions;
         const fullReportData = this.state.reportData;
@@ -1122,7 +1117,6 @@ class Reports extends React.Component {
       if (this.state.reportLimit && reportData.length > this.state.reportLimit) {
         reportData = reportData.slice(0, this.state.reportLimit);
       }
-
     }
 
     if (this.state.reportData === undefined) {
@@ -1146,66 +1140,76 @@ class Reports extends React.Component {
       );
     }
 
-    if (this.state.reportData && reportData.length === 0) {
-      return (
-        <DocumentTitle title={`${docTitle} | KoboToolbox`}>
-          <bem.ReportView>
-            <bem.Loading>
-              <bem.Loading__inner>
-                {t('This report has no data.')}
-              </bem.Loading__inner>
-            </bem.Loading>
-          </bem.ReportView>
-        </DocumentTitle>
-      );
+    const formViewModifiers = [];
+    if (this.state.isFullscreen) {
+      formViewModifiers.push('fullscreen');
     }
+
+    const hasAnyProvidedData = this.hasAnyProvidedData(reportData);
+    const hasGroupBy = this.state.groupBy.length !== 0;
 
     return (
       <DocumentTitle title={`${docTitle} | KoboToolbox`}>
-        <bem.ReportView>
-          {this.renderReportButtons()}
+        <bem.FormView m={formViewModifiers}>
+          <bem.ReportView>
+            {this.renderReportButtons()}
 
-          <bem.ReportView__wrap>
-            <bem.PrintOnly>
-              <h3>{asset.name}</h3>
-            </bem.PrintOnly>
-            {!this.state.currentCustomReport && this.state.reportLimit && reportData.length && this.state.reportData.length > this.state.reportLimit &&
-              <bem.FormView__cell m={['centered', 'reportLimit']}>
-                <div>
-                  {t('For performance reasons, this report only includes the first ## questions.').replace('##', this.state.reportLimit)}
-                </div>
-                <button className='mdl-button mdl-button--colored' onClick={this.resetReportLimit}>
-                  {t('Show all (##)').replace('##', this.state.reportData.length)}
-                </button>
-              </bem.FormView__cell>
+            {!hasAnyProvidedData &&
+              <bem.ReportView__wrap>
+                <bem.Loading>
+                  <bem.Loading__inner>
+                    {t('This report has no data.')}
+
+                    {hasGroupBy && ' ' + t('Try changing Report Style to "No grouping".')}
+                  </bem.Loading__inner>
+                </bem.Loading>
+              </bem.ReportView__wrap>
             }
 
-            <bem.ReportView__warning>
-              <h4>{t('Warning')}</h4>
-              <p>{t('This is an automated report based on raw data submitted to this project. Please conduct proper data cleaning prior to using the graphs and figures used on this page. ')}</p>
-            </bem.ReportView__warning>
-            <ReportContents parentState={this.state} reportData={reportData} triggerQuestionSettings={this.triggerQuestionSettings} />
-          </bem.ReportView__wrap>
+            {hasAnyProvidedData &&
+              <bem.ReportView__wrap>
+                <bem.PrintOnly>
+                  <h3>{asset.name}</h3>
+                </bem.PrintOnly>
+                {!this.state.currentCustomReport && this.state.reportLimit && reportData.length && this.state.reportData.length > this.state.reportLimit &&
+                  <bem.FormView__cell m={['centered', 'reportLimit']}>
+                    <div>
+                      {t('For performance reasons, this report only includes the first ## questions.').replace('##', this.state.reportLimit)}
+                    </div>
+                    <button className='mdl-button mdl-button--colored' onClick={this.resetReportLimit}>
+                      {t('Show all (##)').replace('##', this.state.reportData.length)}
+                    </button>
+                  </bem.FormView__cell>
+                }
 
-          {this.state.showReportGraphSettings &&
-            <ui.Modal open onClose={this.toggleReportGraphSettings} title={t('Edit Report Style')}>
-              <ReportStyleSettings parentState={this.state} />
-            </ui.Modal>
-          }
+                <bem.ReportView__warning>
+                  <h4>{t('Warning')}</h4>
+                  <p>{t('This is an automated report based on raw data submitted to this project. Please conduct proper data cleaning prior to using the graphs and figures used on this page. ')}</p>
+                </bem.ReportView__warning>
 
-          {this.state.showCustomReportModal &&
-            <ui.Modal open onClose={this.toggleCustomReportModal} title={t('Custom Report')}>
-              {this.renderCustomReportModal()}
-            </ui.Modal>
-          }
+                <ReportContents parentState={this.state} reportData={reportData} triggerQuestionSettings={this.triggerQuestionSettings} />
+              </bem.ReportView__wrap>
+            }
 
-          {this.state.currentQuestionGraph &&
-            <ui.Modal open onClose={this.closeQuestionSettings} title={t('Question Style')}>
-              <QuestionGraphSettings question={this.state.currentQuestionGraph} parentState={this.state} />
-            </ui.Modal>
-          }
+            {this.state.showReportGraphSettings &&
+              <ui.Modal open onClose={this.toggleReportGraphSettings} title={t('Edit Report Style')}>
+                <ReportStyleSettings parentState={this.state} />
+              </ui.Modal>
+            }
 
-        </bem.ReportView>
+            {this.state.showCustomReportModal &&
+              <ui.Modal open onClose={this.toggleCustomReportModal} title={t('Custom Report')}>
+                {this.renderCustomReportModal()}
+              </ui.Modal>
+            }
+
+            {this.state.currentQuestionGraph &&
+              <ui.Modal open onClose={this.closeQuestionSettings} title={t('Question Style')}>
+                <QuestionGraphSettings question={this.state.currentQuestionGraph} parentState={this.state} />
+              </ui.Modal>
+            }
+          </bem.ReportView>
+        </bem.FormView>
       </DocumentTitle>
       );
   }

@@ -4,7 +4,7 @@ import reactMixin from 'react-mixin';
 import autoBind from 'react-autobind';
 import Reflux from 'reflux';
 import Select from 'react-select';
-
+import Checkbox from './checkbox';
 import ui from '../ui';
 import bem from '../bem';
 import actions from '../actions';
@@ -27,6 +27,9 @@ class ListSearch extends React.Component {
       this.refs['formlist-search'].setValue('');
     }
     this.setState(searchStoreState);
+  }
+  getValue() {
+    return this.refs['formlist-search'].getValue();
   }
   render () {
     return (
@@ -69,12 +72,10 @@ class ListTagFilter extends React.Component {
       if (searchStoreState.searchTags) {
         let tags = null;
         if (searchStoreState.searchTags.length !== 0) {
-          tags = searchStoreState.searchTags.map(function(tag){
-            return tag.value;
-          }).join(',');
+          tags = searchStoreState.searchTags;
         }
         this.setState({
-          selectedTag: tags
+          selectedTags: tags
         });
       }
     }
@@ -89,40 +90,29 @@ class ListTagFilter extends React.Component {
           value: tag.name.replace(/\s/g, '-'),
         };
       }),
-      selectedTag: null
+      selectedTags: null
     });
   }
-  onTagChange (tagString) {
-    this.searchTagsChange(tagString);
+  onTagsChange (tagsList) {
+    this.searchTagsChange(tagsList);
   }
   render () {
-    if (!this.state.tagsLoaded) {
-      return (
-        <bem.tagSelect>
-          <i className='fa fa-search' />
-          <Select
-            name='tags'
-            value=''
-            disabled
-            multi={false}
-            placeholder={t('Tags are loading...')}
-            className={[this.props.hidden ? 'hidden' : null, 'Select--underlined'].join(' ')}
-          />
-        </bem.tagSelect>
-        );
-    }
     return (
       <bem.tagSelect>
         <i className='fa fa-search' />
         <Select
           name='tags'
-          multi
+          isMulti
+          isLoading={!this.state.tagsLoaded}
+          loadingMessage={() => {return t('Tags are loading...')}}
           placeholder={t('Search Tags')}
-          noResultsText={t('No results found')}
+          noOptionsMessage={() => {return t('No results found')}}
           options={this.state.availableTags}
-          onChange={this.onTagChange}
-          className={[this.props.hidden ? 'hidden' : null, 'Select--underlined'].join(' ')}
-          value={this.state.selectedTag}
+          onChange={this.onTagsChange}
+          className={[this.props.hidden ? 'hidden' : null, 'kobo-select'].join(' ')}
+          classNamePrefix='kobo-select'
+          value={this.state.selectedTags}
+          menuPlacement='auto'
         />
       </bem.tagSelect>
     );
@@ -163,41 +153,38 @@ class ListCollectionFilter extends React.Component {
             value: collection.uid,
           };
         }),
-        selectedCollection: ''
+        selectedCollection: false
       });
 
     });
   }
-  onCollectionChange (collectionUid) {
-    if (collectionUid) {
-      this.searchCollectionChange(collectionUid.value);
+  onCollectionChange (evt) {
+    if (evt) {
+      this.searchCollectionChange(evt.value);
       this.setState({
-        selectedCollection: collectionUid.value
+        selectedCollection: evt
       });
     } else {
       this.searchClear();
       this.setState({
-        selectedCollection: ''
+        selectedCollection: false
       });
     }
   }
   render () {
-    if (!this.state.collectionsLoaded) {
-      return (
-        <bem.collectionFilter>
-          {t('Collections are loading...')}
-        </bem.collectionFilter>
-      );
-    }
     return (
       <bem.collectionFilter>
         <Select
           name='collections'
           placeholder={t('Select Collection Name')}
+          isLoading={!this.state.collectionsLoaded}
+          loadingMessage={() => {return t('Collections are loading...');}}
           options={this.state.availableCollections}
           onChange={this.onCollectionChange}
           value={this.state.selectedCollection}
-          className='Select--underlined'
+          className='kobo-select'
+          classNamePrefix='kobo-select'
+          menuPlacement='auto'
         />
       </bem.collectionFilter>
     );
@@ -225,9 +212,9 @@ class ListExpandToggle extends React.Component {
   searchStoreChanged (searchStoreState) {
     this.setState(searchStoreState);
   }
-  onExpandedToggleChange (/*event*/) {
-    stores.pageState.setState({assetNavExpanded: !this.state.assetNavExpanded});
-    this.setState({assetNavExpanded: !this.state.assetNavExpanded});
+  onExpandedToggleChange (isChecked) {
+    stores.pageState.setState({assetNavExpanded: isChecked});
+    this.setState({assetNavExpanded: isChecked});
   }
   render () {
     let count = this.state.defaultQueryCount;
@@ -241,16 +228,11 @@ class ListExpandToggle extends React.Component {
           {count} {t('assets found')}
         </bem.LibNav__count>
         <bem.LibNav__expandedToggle>
-          <input
-            type='checkbox'
-            className='mdl-checkbox__input'
-            id='expandedToggleCheckbox'
+          <Checkbox
             checked={this.state.assetNavExpanded}
             onChange={this.onExpandedToggleChange}
+            label={t('expand details')}
           />
-          <label htmlFor='expandedToggleCheckbox'>
-            {t('expand details')}
-          </label>
         </bem.LibNav__expandedToggle>
       </bem.LibNav__expanded>
       );

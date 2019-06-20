@@ -3,10 +3,8 @@ import PropTypes from 'prop-types';
 import reactMixin from 'react-mixin';
 import autoBind from 'react-autobind';
 import { hashHistory } from 'react-router';
-import Select from 'react-select';
 import alertify from 'alertifyjs';
 import ui from '../ui';
-
 import stores from '../stores';
 import Reflux from 'reflux';
 import bem from '../bem';
@@ -21,30 +19,17 @@ import {
   stringToColor,
 } from '../utils';
 import searches from '../searches';
-
-import {
-  ListSearch,
-  ListTagFilter,
-} from '../components/list';
+import {ListSearch} from '../components/list';
 
 let typingTimer;
-
-function langsToValues (langs) {
-  return langs.map(function(lang) {
-    return {
-      value: lang[0],
-      label: lang[1],
-    };
-  });
-}
 
 class MainHeader extends Reflux.Component {
   constructor(props){
     super(props);
     this.state = assign({
-      dataPopoverShowing: false,
       asset: false,
       currentLang: currentLang(),
+      isLanguageSelectorVisible: false,
       libraryFiltersContext: searches.getSearchContext('library', {
         filterParams: {
           assetType: 'asset_type:question OR asset_type:block OR asset_type:template',
@@ -56,8 +41,7 @@ class MainHeader extends Reflux.Component {
           assetType: 'asset_type:survey',
         },
         filterTags: 'asset_type:survey',
-      }),
-      _langIndex: 0
+      })
     }, stores.pageState.state);
     this.stores = [
       stores.session,
@@ -69,17 +53,20 @@ class MainHeader extends Reflux.Component {
     document.body.classList.add('hide-edge');
     this.listenTo(stores.asset, this.assetLoad);
   }
+  componentWillUpdate(newProps) {
+    if (this.props.assetid !== newProps.assetid) {
+      this.setState({asset: false});
+    }
+  }
   assetLoad(data) {
-    var assetid = this.props.assetid;
-    var asset = data[assetid];
-
-    this.setState(assign({
-        asset: asset
-      }
-    ));
+    const asset = data[this.props.assetid];
+    this.setState(assign({asset: asset}));
   }
   logout () {
     actions.auth.logout();
+  }
+  toggleLanguageSelector() {
+    this.setState({isLanguageSelectorVisible: !this.state.isLanguageSelectorVisible})
   }
   accountSettings () {
     // verifyLogin also refreshes stored profile data
@@ -156,13 +143,16 @@ class MainHeader extends Reflux.Component {
                   </bem.AccountBox__menuLI>
                 }
                 <bem.AccountBox__menuLI m={'lang'} key='3'>
-                  <bem.AccountBox__menuLink>
+                  <bem.AccountBox__menuLink onClick={this.toggleLanguageSelector} data-popover-menu-stop-blur tabIndex='0'>
                     <i className='k-icon-language' />
                     {t('Language')}
                   </bem.AccountBox__menuLink>
-                  <ul>
-                    {langs.map(this.renderLangItem)}
-                  </ul>
+
+                  {this.state.isLanguageSelectorVisible &&
+                    <ul>
+                      {langs.map(this.renderLangItem)}
+                    </ul>
+                  }
                 </bem.AccountBox__menuLI>
                 <bem.AccountBox__menuLI m={'logout'} key='4'>
                   <bem.AccountBox__menuLink onClick={this.logout}>
@@ -200,6 +190,23 @@ class MainHeader extends Reflux.Component {
   toggleFixedDrawer() {
     stores.pageState.toggleFixedDrawer();
   }
+  updateAssetTitle() {
+    if (!this.state.asset.name.trim()) {
+      alertify.error(t('Please enter a title for your project'));
+      return false;
+    } else {
+      actions.resources.updateAsset(
+        this.state.asset.uid,
+        {
+          name: this.state.asset.name,
+          settings: JSON.stringify({
+            description: this.state.asset.settings.description
+          })
+        }
+      );
+      return true;
+    }
+  }
   assetTitleChange (e) {
     var asset = this.state.asset;
     if (e.target.name == 'title')
@@ -212,28 +219,29 @@ class MainHeader extends Reflux.Component {
     });
 
     clearTimeout(typingTimer);
-
-    typingTimer = setTimeout(() => {
-      if (!this.state.asset.name.trim()) {
-        alertify.error(t('Please enter a title for your project'));
-      } else {
-        actions.resources.updateAsset(
-          this.state.asset.uid,
-          {
-            name: this.state.asset.name,
-            settings: JSON.stringify({
-              description: this.state.asset.settings.description,
-            }),
-          }
-        );
+    typingTimer = setTimeout(this.updateAssetTitle.bind(this), 1500);
+  }
+  assetTitleKeyDown(evt) {
+    if (evt.key === 'Enter') {
+      clearTimeout(typingTimer);
+      if (this.updateAssetTitle()) {
+        evt.currentTarget.blur();
       }
-    }, 1500);
-
+    }
   }
   render () {
     var userCanEditAsset = false;
     if (this.state.asset)
       userCanEditAsset = this.userCan('change_asset', this.state.asset);
+
+    const formTitleNameMods = [];
+    if (
+      this.state.asset &&
+      typeof this.state.asset.name === 'string' &&
+      this.state.asset.name.length > 125
+    ) {
+      formTitleNameMods.push('long');
+    }
 
     return (
         <header className='mdl-layout__header'>
@@ -263,13 +271,15 @@ class MainHeader extends Reflux.Component {
                 :
                   <i className='k-icon-drafts' />
                 }
-                <bem.FormTitle__name>
-                  <input type='text'
-                        name='title'
-                        placeholder={t('Project title')}
-                        value={this.state.asset.name ? this.state.asset.name : ''}
-                        onChange={this.assetTitleChange}
-                        disabled={!userCanEditAsset}
+                <bem.FormTitle__name m={formTitleNameMods}>
+                  <input
+                    type='text'
+                    name='title'
+                    placeholder={t('Project title')}
+                    value={this.state.asset.name ? this.state.asset.name : ''}
+                    onChange={this.assetTitleChange.bind(this)}
+                    onKeyDown={this.assetTitleKeyDown}
+                    disabled={!userCanEditAsset}
                   />
                 </bem.FormTitle__name>
                 { this.state.asset.has_deployment &&

@@ -1,7 +1,9 @@
 import $ from 'jquery';
-
+import alertify from 'alertifyjs';
 import {
+  t,
   assign,
+  notify
 } from './utils';
 
 var dataInterface;
@@ -24,6 +26,23 @@ var dataInterface;
     }
   })();
   this.rootUrl = rootUrl;
+
+  // hook up to all AJAX requests to check auth problems
+  $(document).ajaxError((event, request, settings) => {
+    if (request.status === 403 || request.status === 401 || request.status === 404) {
+      dataInterface.selfProfile().done((data) => {
+        if (data.message === 'user is not logged in') {
+          let errorMessage = t("Please try reloading the page. If you need to contact support, note the following message: <pre>##server_message##</pre>")
+          let serverMessage = request.status.toString();
+          if (request.responseJSON && request.responseJSON.detail) {
+            serverMessage += ": " + request.responseJSON.detail;
+          }
+          errorMessage = errorMessage.replace('##server_message##', serverMessage);
+          alertify.alert(t('You are not logged in'), errorMessage);
+        }
+      });
+    }
+  });
 
   assign(this, {
     selfProfile: ()=> $ajax({ url: `${rootUrl}/me/` }),
@@ -57,49 +76,13 @@ var dataInterface;
         data: data
       });
     },
-    listBlocks () {
-      return $ajax({
-        url: `${rootUrl}/assets/?q=asset_type:block`
-      });
-    },
     listTemplates () {
       return $ajax({
         url: `${rootUrl}/assets/?q=asset_type:template`
       });
     },
-    listSurveys() {
-      return $ajax({
-        url: `${rootUrl}/assets/`,
-        data: {
-          q: 'asset_type:survey'
-        },
-        method: 'GET'
-      });
-    },
     listCollections () {
       return $.getJSON(`${rootUrl}/collections/?all_public=true`);
-    },
-    listAllAssets () {
-      var d = new $.Deferred();
-      $.when($.getJSON(`${rootUrl}/assets/?parent=`), $.getJSON(`${rootUrl}/collections/?parent=`)).done(function(assetR, collectionR){
-        var assets = assetR[0],
-            collections = collectionR[0];
-        var r = {
-          results: [],
-        };
-        var pushItem = function (item){
-          r.results.push(item);
-        };
-        assets.results.forEach(pushItem);
-        collections.results.forEach(pushItem);
-        var sortAtt = 'date_modified';
-        r.results.sort(function(a, b){
-          var ad = a[sortAtt], bd = b[sortAtt];
-          return (ad === bd) ? 0 : ((ad > bd) ? -1 : 1);
-        });
-        d.resolve(r);
-      }).fail(d.fail);
-      return d.promise();
     },
     createAssetSnapshot (data) {
       return $ajax({
@@ -108,6 +91,72 @@ var dataInterface;
         data: data
       });
     },
+
+    /*
+     * external services
+     */
+
+    getHooks(uid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/`,
+        method: 'GET'
+      });
+    },
+    getHook(uid, hookUid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/${hookUid}/`,
+        method: 'GET'
+      });
+    },
+    addExternalService(uid, data) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/`,
+        method: 'POST',
+        data: JSON.stringify(data),
+        dataType: 'json',
+        contentType: 'application/json'
+      });
+    },
+    updateExternalService(uid, hookUid, data) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/${hookUid}/`,
+        method: 'PATCH',
+        data: JSON.stringify(data),
+        dataType: 'json',
+        contentType: 'application/json'
+      });
+    },
+    deleteExternalService(uid, hookUid) {
+      return $ajax({
+        url: `${rootUrl}/assets/${uid}/hooks/${hookUid}/`,
+        method: 'DELETE'
+      });
+    },
+    getHookLogs(uid, hookUid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/logs/`,
+        method: 'GET'
+      })
+    },
+    getHookLog(uid, hookUid, lid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/logs/${lid}/`,
+        method: 'GET'
+      })
+    },
+    retryExternalServiceLogs(uid, hookUid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/retry/`,
+        method: 'PATCH'
+      })
+    },
+    retryExternalServiceLog(uid, hookUid, lid) {
+      return $ajax({
+        url: `/assets/${uid}/hooks/${hookUid}/logs/${lid}/retry/`,
+        method: 'PATCH'
+      })
+    },
+
     getReportData (data) {
       let identifierString;
       if (data.identifiers) {
@@ -199,26 +248,6 @@ var dataInterface;
         method: 'GET'
       });
     },
-    assetSearch ({tags, q}) {
-      var params = [];
-      if (tags) {
-        tags.forEach(function(tag){
-          params.push(`tag:${tag}`);
-        });
-      }
-      if (q) {
-        params.push(`(${q})`);
-      }
-      return $ajax({
-        url: `${rootUrl}/assets/?${params.join(' AND ')}`,
-        method: 'GET'
-      });
-    },
-    readCollection ({uid}) {
-      return $ajax({
-        url: `${rootUrl}/collections/${uid}/`
-      });
-    },
     deleteCollection ({uid}) {
       return $ajax({
         url: `${rootUrl}/collections/${uid}/`,
@@ -283,16 +312,24 @@ var dataInterface;
     },
     getAssetXformView (uid) {
       return $ajax({
-        url: `${rootUrl}/assets/${uid}/xform`,
+        url: `${rootUrl}/assets/${uid}/xform/`,
         dataType: 'html'
       });
     },
-    searchAssets (queryString) {
-      return $ajax({
+    searchAssets (searchData) {
+      // override limit
+      searchData.limit = 200;
+      return $.ajax({
         url: `${rootUrl}/assets/`,
-        data: {
-          q: queryString
-        }
+        dataType: 'json',
+        data: searchData,
+        method: 'GET'
+      });
+    },
+    assetsHash () {
+      return $ajax({
+        url: `${rootUrl}/assets/hash/`,
+        method: 'GET'
       });
     },
     createCollection (data) {
@@ -338,6 +375,12 @@ var dataInterface;
       } else {
         return $.getJSON(`${rootUrl}/collections/${params.id}/`);
       }
+    },
+    loadNextPageUrl(nextPageUrl){
+      return $ajax({
+        url: nextPageUrl,
+        method: 'GET'
+      });
     },
     deployAsset (asset, redeployment) {
       var data = {
@@ -393,13 +436,13 @@ var dataInterface;
         filter += '&count=1';
 
       return $ajax({
-        url: `${rootUrl}/assets/${uid}/submissions?${query}${s}${f}${filter}`,
+        url: `${rootUrl}/assets/${uid}/submissions/?${query}${s}${f}${filter}`,
         method: 'GET'
       });
     },
     getSubmission(uid, sid) {
       return $ajax({
-        url: `${rootUrl}/assets/${uid}/submissions/${sid}`,
+        url: `${rootUrl}/assets/${uid}/submissions/${sid}/`,
         method: 'GET'
       });
     },
@@ -419,7 +462,7 @@ var dataInterface;
     },
     getSubmissionsQuery(uid, query='') {
       return $ajax({
-        url: `${rootUrl}/assets/${uid}/submissions?${query}`,
+        url: `${rootUrl}/assets/${uid}/submissions/?${query}`,
         method: 'GET'
       });
     },
@@ -431,7 +474,7 @@ var dataInterface;
     },
     getEnketoEditLink(uid, sid) {
       return $ajax({
-        url: `${rootUrl}/assets/${uid}/submissions/${sid}/edit?return_url=false`,
+        url: `${rootUrl}/assets/${uid}/submissions/${sid}/edit/?return_url=false`,
         method: 'GET'
       });
     },
@@ -451,13 +494,13 @@ var dataInterface;
     },
     getAssetFiles(uid) {
       return $ajax({
-        url: `${rootUrl}/assets/${uid}/files`,
+        url: `${rootUrl}/assets/${uid}/files/`,
         method: 'GET'
       });
     },
     deleteAssetFile(assetUid, uid) {
       return $ajax({
-        url: `${rootUrl}/assets/${assetUid}/files/${uid}`,
+        url: `${rootUrl}/assets/${assetUid}/files/${uid}/`,
         method: 'DELETE'
       });
     },
