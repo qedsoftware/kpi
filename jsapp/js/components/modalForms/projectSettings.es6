@@ -542,6 +542,13 @@ class ProjectSettings extends React.Component {
           this.applyFileToAsset(files[0], asset).then(
             (data) => {
               dataInterface.getAsset({id: data.uid}).done((finalAsset) => {
+                // TODO: Getting asset outside of actions.resources.loadAsset
+                // is not going to notify all the listeners, causing some hard
+                // to identify bugs.
+                // Until we switch this code to use actions we HACK it so other
+                // places are notified.
+                actions.resources.loadAsset.completed(finalAsset);
+
                 if (this.props.context === PROJECT_SETTINGS_CONTEXTS.REPLACE) {
                   // when replacing, we omit PROJECT_DETAILS step
                   this.goToFormLanding();
@@ -820,6 +827,7 @@ class ProjectSettings extends React.Component {
               className='kobo-select'
               classNamePrefix='kobo-select'
               menuPlacement='auto'
+              isClearable
             />
           </bem.FormModal__item>
 
@@ -835,6 +843,7 @@ class ProjectSettings extends React.Component {
               className='kobo-select'
               classNamePrefix='kobo-select'
               menuPlacement='auto'
+              isClearable
             />
           </bem.FormModal__item>
 
@@ -865,12 +874,6 @@ class ProjectSettings extends React.Component {
                 {!this.state.isSubmitPending && this.props.context === PROJECT_SETTINGS_CONTEXTS.REPLACE && t('Save')}
               </bem.Modal__footerButton>
             </bem.Modal__footer>
-          }
-
-          {this.props.context === PROJECT_SETTINGS_CONTEXTS.EXISTING && this.props.iframeUrl &&
-            <bem.FormView__cell m='iframe'>
-              <iframe src={this.props.iframeUrl} />
-            </bem.FormView__cell>
           }
 
           {this.props.context === PROJECT_SETTINGS_CONTEXTS.EXISTING &&
@@ -913,6 +916,12 @@ class ProjectSettings extends React.Component {
                 {t('Delete Project and Data')}
               </button>
             </bem.FormModal__item>
+          }
+
+          {this.props.context === PROJECT_SETTINGS_CONTEXTS.EXISTING && this.props.iframeUrl &&
+            <bem.FormView__cell m='iframe'>
+              <iframe src={this.props.iframeUrl} />
+            </bem.FormView__cell>
           }
         </bem.FormModal__item>
       </bem.FormModal__form>

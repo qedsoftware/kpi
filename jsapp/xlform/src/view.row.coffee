@@ -87,6 +87,9 @@ module.exports = do ->
           questionType: questionType
         }).render().insertInDOMAfter(@$header)
 
+      if questionType is 'calculate'
+        @$hint.hide()
+
       if 'getList' of @model and (cl = @model.getList())
         @$card.addClass('card--selectquestion card--expandedchoices')
         @is_expanded = true
@@ -160,13 +163,18 @@ module.exports = do ->
     render: ->
       if !@already_rendered
         @$el.html $viewTemplates.row.groupView(@model)
-        @$label = @$('.group__label').eq(0)
+        @$label = @$('.card__header-title')
         @$rows = @$('.group__rows').eq(0)
         @$card = @$('.card')
         @$header = @$('.card__header,.group__header').eq(0)
 
       @model.rows.each (row)=>
         @getApp().ensureElInView(row, @, @$rows).render()
+
+      if !@already_rendered
+        # only render the row details which are necessary for the initial view (ie 'label')
+        view = new $viewRowDetail.DetailView(model: @model.get('label'), rowView: @)
+        view.render().insertInDOM(@)
 
       @already_rendered = true
       @
