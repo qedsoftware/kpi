@@ -16,7 +16,7 @@ python-digest==1.7
 django-guardian==1.4.1
 
 # Django fork
--e git+https://github.com/qedsoftware/django.git@stable/1.8.x#egg=django
+-e git+https://github.com/qedsoftware/django.git@stable/1.8.20#egg=django
 
 # Regular PyPI packages
 Markdown
