@@ -15,8 +15,10 @@ python-digest==1.7
 # django-guardian must match KoBoCAT's version
 django-guardian==1.4.1
 
+# Django fork
+-e git+https://github.com/qedsoftware/django.git@stable/1.8.x#egg=django
+
 # Regular PyPI packages
-Django<1.9
 Markdown
 Pygments
 amqp
