@@ -235,6 +235,7 @@ class Submission extends React.Component {
     let translationIndex = this.state.translationIndex;
 
     var submissionValue = s[name];
+    let list;
 
     if (overrideValue)
       submissionValue = overrideValue;
@@ -249,7 +250,7 @@ class Submission extends React.Component {
         break;
       case 'select_multiple':
         var responses = submissionValue.split(' ');
-        var list = responses.map((r)=> {
+        list = responses.map((r)=> {
           const choice = choices.find(x => x.list_name == q.select_from_list_name && x.name === r);
           if (choice && choice.label && choice.label[translationIndex])
             return <li key={r}>{choice.label[translationIndex]}</li>;
@@ -264,7 +265,7 @@ class Submission extends React.Component {
         return this.renderAttachment(submissionValue, q.type);
         break;
       case 'begin_repeat':
-        const list = submissionValue.map((r) => {
+        list = submissionValue.map((r) => {
           const stringified = JSON.stringify(r);
           return <li key={stringified}>{stringified}</li>
         });
