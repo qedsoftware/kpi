@@ -20,7 +20,8 @@ import {dataInterface} from 'js/dataInterface';
 import {
   t,
   validFileTypes,
-  isAValidUrl
+  isAValidUrl,
+  escapeHtml
 } from 'js/utils';
 import {PROJECT_SETTINGS_CONTEXTS} from 'js/constants';
 
@@ -364,20 +365,19 @@ class ProjectSettings extends React.Component {
       this.getOrCreateFormAsset().then(
         (asset) => {
           this.setState({formAsset: asset});
+          const importUrl = this.state.importUrl;
 
-          this.applyUrlToAsset(this.state.importUrl, asset).then(
+          this.applyUrlToAsset(importUrl, asset).then(
             (data) => {
               dataInterface.getAsset({id: data.uid}).done((finalAsset) => {
                 if (this.props.context === PROJECT_SETTINGS_CONTEXTS.REPLACE) {
                   // when replacing, we omit PROJECT_DETAILS step
                   this.handleReplaceDone();
                 } else {
-                  // try proposing something more meaningful than "Untitled"
-                  const newName = decodeURIComponent(new URL(this.state.importUrl).pathname.split('/').pop().split('.')[0]);
-
                   this.setState({
                     formAsset: finalAsset,
-                    name: newName,
+                    // try proposing something more meaningful than "Untitled"
+                    name: this.getFilenameFromURI(importUrl),
                     description: finalAsset.settings.description,
                     sector: finalAsset.settings.sector,
                     country: finalAsset.settings.country,
@@ -391,9 +391,17 @@ class ProjectSettings extends React.Component {
                 alertify.error(t('Failed to reload project after import!'));
               });
             },
-            () => {
+            (response) => {
               this.resetImportUrlButton();
-              alertify.error(t('XLSForm Import failed. Check that the XLSForm and/or the URL are valid, and try again.'));
+              const errLines = [];
+              errLines.push(t('Import Failed!'));
+              if (importUrl) {
+                errLines.push(`<code>Name: ${this.getFilenameFromURI(importUrl)}</code>`);
+              }
+              if (response.messages.error) {
+                errLines.push(`<code>${response.messages.error_type}: ${escapeHtml(response.messages.error)}</code>`);
+              }
+              alertify.error(errLines.join('<br/>'));
             }
           );
         },
@@ -435,8 +443,16 @@ class ProjectSettings extends React.Component {
                 alertify.error(t('Failed to reload project after upload!'));
               });
             },
-            () => {
-              alertify.error(t('Could not initialize XLSForm upload!'));
+            (response) => {
+              const errLines = [];
+              errLines.push(t('Import Failed!'));
+              if (files[0].name) {
+                errLines.push(`<code>Name: ${files[0].name}</code>`);
+              }
+              if (response.messages.error) {
+                errLines.push(`<code>${response.messages.error_type}: ${escapeHtml(response.messages.error)}</code>`);
+              }
+              alertify.error(errLines.join('<br/>'));
             }
           );
         },
@@ -673,8 +689,12 @@ class ProjectSettings extends React.Component {
               value={this.state.sector}
               onChange={this.onSectorChange}
               options={sectors}
+              className='kobo-select'
+              classNamePrefix='kobo-select'
+              menuPlacement='auto'
             />
           </bem.FormModal__item>
+
           <bem.FormModal__item  m='country'>
             <label htmlFor='country'>
               {t('Country')}
@@ -684,6 +704,9 @@ class ProjectSettings extends React.Component {
               value={this.state.country}
               onChange={this.onCountryChange}
               options={countries}
+              className='kobo-select'
+              classNamePrefix='kobo-select'
+              menuPlacement='auto'
             />
           </bem.FormModal__item>
 

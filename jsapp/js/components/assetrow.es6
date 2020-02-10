@@ -10,38 +10,23 @@ import stores from '../stores';
 import mixins from '../mixins';
 import {dataInterface} from '../dataInterface';
 import {ASSET_TYPES} from '../constants';
-
 import TagInput from '../components/tagInput';
-
 import {
   formatTime,
-  anonUsername,
-  t,
-  assign,
-  validFileTypes
+  t
 } from '../utils';
 
 class AssetRow extends React.Component {
   constructor(props){
     super(props);
     this.state = {
-      tags: this.props.tags,
+      isTagsInputVisible: false,
       clearPopover: false,
       popoverVisible: false
     };
+    this.escFunction = this.escFunction.bind(this);
     autoBind(this);
   }
-  // clickAsset (evt) {
-  //   // this click was not intended for a button
-  //   evt.nativeEvent.preventDefault();
-  //   evt.nativeEvent.stopImmediatePropagation();
-  //   evt.preventDefault();
-
-  //   // if no asset is selected, then this asset
-  //   // otherwise, toggle selection (unselect if already selected)
-  //   // let forceSelect = (stores.selectedAsset.uid === false);
-  //   // stores.selectedAsset.toggleSelect(this.props.uid, forceSelect);
-  // }
   clickAssetButton (evt) {
     var clickedActionIcon = $(evt.target).closest('[data-action]').get(0);
     if (clickedActionIcon) {
@@ -51,11 +36,19 @@ class AssetRow extends React.Component {
       this.props.onActionButtonClick(action, this.props.uid, name);
     }
   }
-  clickTagsToggle (evt) {
-    var tagsToggle = !this.state.displayTags;
-      this.setState({
-        displayTags: tagsToggle,
-      });
+  clickTagsToggle () {
+    const isTagsInputVisible = !this.state.isTagsInputVisible;
+    if (isTagsInputVisible) {
+      document.addEventListener('keydown', this.escFunction);
+    } else {
+      document.removeEventListener('keydown', this.escFunction);
+    }
+    this.setState({isTagsInputVisible: isTagsInputVisible});
+  }
+  escFunction (evt) {
+    if (evt.keyCode === 27 && this.state.isTagsInputVisible) {
+      this.clickTagsToggle();
+    }
   }
   componentDidMount () {
     this.prepParentCollection();
@@ -98,7 +91,6 @@ class AssetRow extends React.Component {
     var _rc = this.props.summary && this.props.summary.row_count || 0;
 
     var hrefTo = `/forms/${this.props.uid}`,
-        linkClassName = this.props.name ? 'asset-row__celllink--titled' : 'asset-row__celllink--untitled',
         tags = this.props.tags || [],
         ownedCollections = [],
         parent = undefined;
@@ -131,7 +123,7 @@ class AssetRow extends React.Component {
     return (
         <bem.AssetRow
           m={{
-            'display-tags': this.state.displayTags,
+            'display-tags': this.state.isTagsInputVisible,
             'deleted': this.props.deleted,
             'deleting': this.props.deleting,
           }}
@@ -145,6 +137,14 @@ class AssetRow extends React.Component {
             onClick={this.clickAssetButton}
             data-asset-type={this.props.kind}
           >
+            <Link
+              to={hrefTo}
+              data-kind={this.props.kind}
+              data-asset-type={this.props.kind}
+              draggable={false}
+              className='asset-row__link-overlay'
+            />
+
             {/* "title" column */}
             <bem.AssetRow__cell
               m={'title'}
@@ -157,18 +157,10 @@ class AssetRow extends React.Component {
                 ) &&
                 <i className={`row-icon row-icon--${this.props.asset_type}`}>{_rc}</i>
               }
-              <Link
-                to={hrefTo}
-                data-kind={this.props.kind}
-                data-asset-type={this.props.kind}
-                draggable={false}
-                className={`asset-row__celllink asset-row__celllink-name ${linkClassName}`}
-              >
-                <bem.AssetRow__name>
-                  <ui.AssetName {...this.props} />
-                </bem.AssetRow__name>
-              </Link>
-              { this.props.asset_type && this.props.asset_type === 'survey' &&
+              <bem.AssetRow__cell m='name'>
+                <ui.AssetName {...this.props} />
+              </bem.AssetRow__cell>
+              { this.props.asset_type && this.props.asset_type === 'survey' && this.props.settings.description &&
                 <bem.AssetRow__description>
                   {this.props.settings.description}
                 </bem.AssetRow__description>
@@ -239,7 +231,7 @@ class AssetRow extends React.Component {
             }
           </bem.AssetRow__cell>
 
-          { this.state.displayTags &&
+          { this.state.isTagsInputVisible &&
             <bem.AssetRow__cell m={'tags'}
                 key={'tags'}
                 className='mdl-cell mdl-cell--12-col'
@@ -362,6 +354,15 @@ class AssetRow extends React.Component {
                 >
                   <i className='k-icon-replace' />
                   {t('Replace project')}
+                </bem.PopoverMenu__link>
+              }
+              { userCanEdit &&
+                <bem.PopoverMenu__link
+                  data-action={'translations'}
+                  data-asset-uid={this.props.uid}
+                >
+                  <i className='k-icon-language' />
+                  {t('Manage Translations')}
                 </bem.PopoverMenu__link>
               }
               {this.props.downloads.map((dl)=>{
