@@ -70,3 +70,5 @@ All project icons are kept in `jsapp/svg-icons/`. Adding new icon requires addin
 Supported Browsers
 ------------------
 See [browsers list config](./.browserslistrc)
+
+dockerhub kick #1
