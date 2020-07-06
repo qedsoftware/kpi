@@ -115,6 +115,14 @@ MIDDLEWARE_CLASSES = (
     # TODO: Uncomment this when interoperability with dkobo is no longer
     # needed. See https://code.djangoproject.com/ticket/21649
     #'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
+)
+
+if os.getenv("USE_REMOTE_AUTH", "False") == "True":
+    MIDDLEWARE_CLASSES += (
+        'kobo.auth.QedAuthMiddleware',
+    )
+
+MIDDLEWARE_CLASSES += (
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'hub.middleware.OtherFormBuilderRedirectMiddleware',
