@@ -186,6 +186,7 @@ MARKITUP_FILTER = ('markdown.markdown', {'safe_mode': False})
 # guardian.backends.ObjectPermissionBackend.
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
+    'django.contrib.auth.backends.RemoteUserBackend',
     'kpi.backends.ObjectPermissionBackend',
 )
 
