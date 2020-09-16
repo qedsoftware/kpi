@@ -1385,7 +1385,14 @@ class EnvironmentView(APIView):
         Return the lowercased key and value of each setting in
         `CONFIGS_TO_EXPOSE`
         '''
-        return Response({
+
+        constance_exposed_configs = {
             key.lower(): getattr(constance.config, key)
                 for key in self.CONFIGS_TO_EXPOSE
-        })
+        }
+
+        django_exposed_configs = {
+            'USE_REMOTE_AUTH'.lower(): settings.USE_REMOTE_AUTH
+        }
+
+        return Response(dict(constance_exposed_configs, **django_exposed_configs))

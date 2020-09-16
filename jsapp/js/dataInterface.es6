@@ -54,7 +54,12 @@ var dataInterface;
         .fail(()=>{ d.reject(username, false); });
       return d.promise();
     },
-    logout: ()=> {
+    logout: (use_remote_auth)=> {
+      if (use_remote_auth) {
+        // External proxy will catch this url and redirect to appropriate logout url
+        window.location.href = `${rootUrl}/api-auth/logout/`
+      }
+
       var d = new $.Deferred();
       $ajax({ url: `${rootUrl}/api-auth/logout/` }).done(d.resolve).fail(function (/*resp, etype, emessage*/) {
         // logout request wasn't successful, but may have logged the user out

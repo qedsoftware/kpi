@@ -62,8 +62,8 @@ class MainHeader extends Reflux.Component {
     const asset = data[this.props.assetid];
     this.setState(assign({asset: asset}));
   }
-  logout () {
-    actions.auth.logout();
+  logout (use_remote_auth) {
+    actions.auth.logout(use_remote_auth);
   }
   toggleLanguageSelector() {
     this.setState({isLanguageSelectorVisible: !this.state.isLanguageSelectorVisible})
@@ -107,6 +107,8 @@ class MainHeader extends Reflux.Component {
 
       var initialsStyle = {background: `#${stringToColor(accountName)}`};
       var accountMenuLabel = <bem.AccountBox__initials style={initialsStyle}>{accountName.charAt(0)}</bem.AccountBox__initials>;
+
+      var use_remote_auth = stores.session && stores.session.environment && stores.session.environment.use_remote_auth;
 
       return (
         <bem.AccountBox>
@@ -155,7 +157,7 @@ class MainHeader extends Reflux.Component {
                   }
                 </bem.AccountBox__menuLI>
                 <bem.AccountBox__menuLI m={'logout'} key='4'>
-                  <bem.AccountBox__menuLink onClick={this.logout}>
+                  <bem.AccountBox__menuLink onClick={() => this.logout(use_remote_auth)}>
                     <i className='k-icon-logout' />
                     {t('Logout')}
                   </bem.AccountBox__menuLink>

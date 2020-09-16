@@ -64,6 +64,8 @@ ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(' ')
 
 LOGIN_REDIRECT_URL = '/'
 
+USE_REMOTE_AUTH = os.getenv("USE_REMOTE_AUTH", "False") == "True"
+
 # Application definition
 
 # The order of INSTALLED_APPS is important for template resolution. When two
@@ -117,7 +119,7 @@ MIDDLEWARE_CLASSES = (
     #'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
 )
 
-if os.getenv("USE_REMOTE_AUTH", "False") == "True":
+if USE_REMOTE_AUTH:
     MIDDLEWARE_CLASSES += (
         'kobo.auth.QedAuthMiddleware',
     )
