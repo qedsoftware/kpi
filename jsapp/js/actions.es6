@@ -640,8 +640,8 @@ actions.auth.logout.completed.listen(function(){
   }, 1);
 });
 
-actions.auth.logout.listen(function(){
-  dataInterface.logout().done(actions.auth.logout.completed).fail(function(){
+actions.auth.logout.listen(function(use_remote_auth){
+  dataInterface.logout(use_remote_auth).done(actions.auth.logout.completed).fail(function(){
     console.error('logout failed for some reason. what should happen now?');
   });
 });
