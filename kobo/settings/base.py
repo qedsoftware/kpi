@@ -122,6 +122,7 @@ MIDDLEWARE_CLASSES = (
 if USE_REMOTE_AUTH:
     MIDDLEWARE_CLASSES += (
         'kobo.auth.QedAuthMiddleware',
+        'kobo.auth.QedRemoteUserAttributeMiddleware',
     )
 
 MIDDLEWARE_CLASSES += (
